@@ -11,11 +11,11 @@ class UDPBroadcastSender:
         self.broadcastIp = self.getBroadcastIP(self.ip_address, self.subnetmask)
         self.boradcastPort = broadcastPort
         
-    def broadcast(self, port, broadcast_message):
+    def broadcast(self, broadcast_message):
         # Create a UDP socket
         broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # Send message on broadcast address
-        broadcast_socket.sendto(str.encode(broadcast_message), (self.broadcastIp, port))
+        broadcast_socket.sendto(str.encode(broadcast_message), (self.broadcastIp, self.boradcastPort))
         broadcast_socket.close()
 
     def getBroadcastIP(self, IP, SUBNETMASK):
@@ -44,6 +44,6 @@ if __name__ == '__main__':
     # Send broadcast message
     #message = sender.ip_address + ' sent a broadcast'
     message = "End"
-    sender.broadcast(BROADCAST_PORT, message)
+    sender.broadcast(message)
     print("Sent")
 
