@@ -35,15 +35,19 @@ class ChineseWhispers:
         index = line.index(word_understood)
         # go up/down / stay
         if index == 0:
-            if prop < 0.5:
+            if prop < PROB_FOR_ONE_WORD_DOWN:
+                return line[len(line) - 1]
+            elif prop >= PROB_FOR_ONE_WORD_DOWN and prop < PROB_FOR_SAME_WORD:
                 return line[0]
             else:
                 return line[1]
-        elif index == len(line):
-            if prop < 0.5:
+        elif index == len(line) - 1:
+            if prop < PROB_FOR_ONE_WORD_DOWN:
                 return line[index - 1]
-            else:
+            elif prop >= PROB_FOR_ONE_WORD_DOWN and prop < PROB_FOR_SAME_WORD:
                 return line[index]
+            else:
+                return line[0]
         else:
             if prop < PROB_FOR_ONE_WORD_DOWN:
                 return line[index - 1]
@@ -55,7 +59,7 @@ class ChineseWhispers:
         pass
 
     def findWordInWordList(self, word):
-        with open('Rhymes.csv', mode ='r')as file:
+        with open('../../data/Rhymes.csv', mode ='r')as file:
             csvFile = csv.reader(file)
             for lines in csvFile:
                 if (lines.__contains__(word)):
