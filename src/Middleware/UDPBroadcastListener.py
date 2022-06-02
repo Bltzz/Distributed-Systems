@@ -4,12 +4,13 @@ import ipaddress
 import threading
 
 class UDPBroadcastListener(threading.Thread):
-    def __init__(self, broadcastPort):
+    
+    def __init__(self, broadcastPort, subnetmask):
         threading.Thread.__init__(self)
         self.broadcastPort = broadcastPort
         self.host = socket.gethostname()
         self.ip_addr = socket.gethostbyname(self.host)
-        self.boradcastIP = self.getBroadcastIP(self.ip_addr, '255.255.255.0')
+        self.boradcastIP = self.getBroadcastIP(self.ip_addr, subnetmask)
 
     def getBroadcastIP(self, IP, SUBNETMASK):
         networkaddress = ipaddress.IPv4Network(IP + '/' + SUBNETMASK, False)
@@ -44,6 +45,6 @@ class UDPBroadcastListener(threading.Thread):
 if __name__ == '__main__':
     # Listening port
     BROADCAST_PORT = 59073
-
-    listener = UDPBroadcastListener(BROADCAST_PORT)
+    SUBNETMASK = "255.255.255.0"
+    listener = UDPBroadcastListener(BROADCAST_PORT, SUBNETMASK)
     listener.start()
