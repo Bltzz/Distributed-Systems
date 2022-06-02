@@ -1,5 +1,6 @@
 # local config file
 distributionScript/.ftp_config.json
+src/.ftp_config.json
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
