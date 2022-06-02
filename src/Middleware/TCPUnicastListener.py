@@ -1,10 +1,12 @@
 import socket
 import threading
+import uuid
 
 class TCPUnicastListener(threading.Thread):
 
-    def __init__(self, listeningPort):
+    def __init__(self, listeningPort, uuid):
         threading.Thread.__init__(self)
+        self.UUID = uuid
         self.listeningPort = listeningPort
         self.host = socket.gethostname()
         self.ip_addr = socket.gethostbyname(self.host)
@@ -13,7 +15,7 @@ class TCPUnicastListener(threading.Thread):
     def run(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind((self.ip_addr, self.listeningPort))
-        s.listen(1)
+        s.listen()
         conn, addr = s.accept()
         cond = True
         while cond:
@@ -21,14 +23,14 @@ class TCPUnicastListener(threading.Thread):
             if not data:
                 break
             print(data.decode())
-            conn.sendall(data)
-            cond = False
+            conn.sendall(str.encode("Thanks"))
+            
         conn.close()        
 
 
 if __name__ == '__main__':
     print("Start TCP Unicast Listener")
-    listener = TCPUnicastListener(50001)
+    listener = TCPUnicastListener(59072, uuid.uuid4())
     listener.start()
     listener.join()
     print("End TCP Unicast Listener")

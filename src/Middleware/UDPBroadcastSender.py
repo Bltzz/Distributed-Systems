@@ -1,10 +1,11 @@
 import socket
 import ipaddress
-
+import uuid
 # No Threading needed (for now)
 # Only Used to send a message at a specific point in time. No listening all the time. 
 class UDPBroadcastSender:
-    def __init__(self, subnetmask, broadcastPort):
+    def __init__(self, broadcastPort, subnetmask, uuid):
+        self.UUID = uuid
         self.subnetmask = subnetmask
         self.hostname = socket.gethostname()
         self.ip_address = socket.gethostbyname(self.hostname)
@@ -14,6 +15,8 @@ class UDPBroadcastSender:
     def broadcast(self, broadcast_message):
         # Create a UDP socket
         broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
         # Send message on broadcast address
         broadcast_socket.sendto(str.encode(broadcast_message), (self.broadcastIp, self.boradcastPort))
         broadcast_socket.close()
@@ -35,7 +38,7 @@ if __name__ == '__main__':
     # Broadcast address and port
     BROADCAST_PORT = 59073
 
-    sender = UDPBroadcastSender(SUBNETMASK, BROADCAST_PORT)
+    sender = UDPBroadcastSender(BROADCAST_PORT, SUBNETMASK, uuid.uuid4())
 
     # Local host information
     
