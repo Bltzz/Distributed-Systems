@@ -27,7 +27,8 @@ def ftp(host):
             for file in glob.glob(folder + '/*'):
                 basename = os.path.basename(file)
                 try:
-                    sftp.put(file, f'{config["path"]}/{folder}/{basename}')
+                    if not basename.__contains__("__pycache__"):
+                        sftp.put(file, f'{config["path"]}/{folder}/{basename}')
                 except FileNotFoundError:
                     sftp.mkdir(f'{config["path"]}/{folder}')
                     sftp.put(file, f'{config["path"]}/{folder}/{basename}')
