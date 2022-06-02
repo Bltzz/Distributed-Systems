@@ -1,5 +1,6 @@
 
 import socket
+import ipaddress
 import threading
 
 class UDPBroadcastListener(threading.Thread):
@@ -8,6 +9,11 @@ class UDPBroadcastListener(threading.Thread):
         self.broadcastPort = broadcastPort
         self.host = socket.gethostname()
         self.ip_addr = socket.gethostbyname(self.host)
+        self.boradcastIP = self.getBroadcastIP(self.ip_addr, '255.255.255.0')
+
+    def getBroadcastIP(self, IP, SUBNETMASK):
+        networkaddress = ipaddress.IPv4Network(IP + '/' + SUBNETMASK, False)
+        return networkaddress.broadcast_address.exploded
 
     def run(self):
         print("Start run")
@@ -17,7 +23,7 @@ class UDPBroadcastListener(threading.Thread):
         listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # Bind socket to address and port
-        listen_socket.bind((self.ip_addr, self.broadcastPort))
+        listen_socket.bind((self.boradcastIP, self.broadcastPort))
         print("Listening to broadcast messages")
 
         cond = True
