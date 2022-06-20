@@ -43,21 +43,23 @@ def sendHeartbeat():
 
 def unicastListener():
     listen_socket = getTCPUnicastListener()
-    conn, addr = listen_socket.accept()
     cond = True
     while cond:
-        data = None 
+        data = None
+        #print("Listening for unicast message...")
+        listen_socket.listen()
+        conn, addr = listen_socket.accept() 
         data = conn.recv(1024)
         if data:
-            print("Unicast Message received: %s", data.decode())
+            print("Unicast Message received: ", data.decode())
             msg = {
                 "cmd": "SUCCESS"
             }
             conn.sendall(encodeMessage(msg))
             print("answer sent")
-            conn.close() 
             interpret_message(data)
-            data = None       
+            data = None
+    conn.close() #Müsste eigentlich in der loop sein? aber wirft dann Fehler      
 
 
 def broadcastListener():
@@ -70,7 +72,7 @@ def broadcastListener():
         data, addr = listen_socket.recvfrom(1024)
         if data:
             try:
-                print("Broadcast Message received: %s", data.decode())
+                print("Broadcast Message received: ", data.decode())
                 interpret_message(data)
             except JSONDecodeError:
                 print("No Json")
@@ -84,16 +86,15 @@ def interpret_message(data):
     except ValueError:
         #do nothing
         pass
-    CMD = {
-        'INIT_BROADCAST'        : respondWithOwnIPToBroadcast(msg['message']),
-        'INIT_BROADCAST_RES'    : addResponsivePeerToList(msg['message']),
-        'VOTE'                  : startVoting(),
-        'START_GAME'            : startGame(msg),
-        'TELL_WORD'             : tellWordToNeigbor(msg),
-        'HEARTBEAT'             : sendHeartbeat(),
-        'SUCCESS'               : None
-    }
-    CMD.get(msg["cmd"])
+
+    if msg["cmd"] == 'INIT_BROADCAST': respondWithOwnIPToBroadcast(msg['message'])
+    elif msg["cmd"] == 'INIT_BROADCAST_RES': addResponsivePeerToList(msg['message'])
+    elif msg["cmd"] == 'VOTE': startVoting()
+    elif msg["cmd"] == 'START_GAME': startGame(msg)
+    elif msg["cmd"] == 'TELL_WORD': tellWordToNeigbor(msg)
+    elif msg["cmd"] == 'HEARTBEAT': sendHeartbeat()
+    elif msg["cmd"] == 'SUCCESS': None
+
     return
 
 def sendBroadcast(message):
@@ -101,20 +102,26 @@ def sendBroadcast(message):
     broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     # Send message on broadcast address
     broadcast_socket.sendto(message, (getBroadcastIP(), BROADCAST_PORT))
+    #print("Broadcast Message sent: ", message)
     broadcast_socket.close()
 
 def respondWithOwnIPToBroadcast(recipientIP):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((recipientIP, UNICAST_PORT))
+    #print(recipientIP, UNICAST_PORT)
+    s.connect_ex((recipientIP, UNICAST_PORT)) #Ist hier der Fehler?????? #Unicast listener des anderen peer funktioniert nicht?
     msg = {
         "cmd" : "INIT_BROADCAST_RES",
         "uuid": str(UUID),
         "message" : getIP()
     }
     s.sendall(encodeMessage(msg))
+    #print("Unicast Message sent: ", msg)
     data = s.recv(1024)
     print(data.decode())
     s.close()
+    # Add peer to list only if it is another peer
+    if recipientIP != getIP():
+        addResponsivePeerToList(recipientIP)
     return
 
 def addResponsivePeerToList(senderIP):
