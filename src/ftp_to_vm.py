@@ -26,13 +26,15 @@ def ftp(host):
         for folder in config['folders']:
             for file in glob.glob(folder + '/*'):
                 basename = os.path.basename(file)
-                try:
-                    if not basename.__contains__("__pycache__"):
+                if not basename.__contains__("broadcast") and not basename.__contains__("unicast"):
+                    print(basename)
+                    try:
+                        if not basename.__contains__("__pycache__"):
+                            sftp.put(file, f'{config["path"]}/{folder}/{basename}')
+                    except FileNotFoundError:
+                        sftp.mkdir(f'{config["path"]}/{folder}')
                         sftp.put(file, f'{config["path"]}/{folder}/{basename}')
-                except FileNotFoundError:
-                    sftp.mkdir(f'{config["path"]}/{folder}')
-                    sftp.put(file, f'{config["path"]}/{folder}/{basename}')
-                print_string += ' ' + folder + "/" + basename
+                    print_string += ' ' + folder + "/" + basename
 
         print(print_string)
         sftp.close()
