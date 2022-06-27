@@ -7,8 +7,11 @@ import uuid
 import argparse
 from json import loads, dumps
 import threading
+import os
 
-from CommonUtil import encodeMessage, decodeMessage
+from CommonUtil import encodeMessage, decodeMessage, get_lan_ip, IP_ADDR
+from Middleware.test import sortList
+from sample_code.broadcastsender import MY_IP
 
 
 #Leader vom SPiel
@@ -25,7 +28,7 @@ class BroadcastListener(Thread):
         Thread.__init__(self)
         self.bcport = 59073
         self.my_host = socket.gethostname()
-        self.my_ip = socket.gethostbyname(self.my_host)
+        self.my_ip = IP_ADDR # from CommonUtil # socket.gethostbyname(self.my_host)
         print("My IP: "+self.my_ip)
 
         # Create a UDP socket
@@ -36,7 +39,7 @@ class BroadcastListener(Thread):
         self.listen_socket.setsockopt(
             socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # Bind socket to address and port
-        self.listen_socket.bind((self.my_ip, self.bcport))
+        self.listen_socket.bind(('', self.bcport))
         print("Listening to broadcast messages")
         self.running = True
 
@@ -46,7 +49,7 @@ class BroadcastListener(Thread):
             if data:
                 msg = decodeMessage(data)
                 print("Received broadcast message:", msg)
-                peers.append(msg['msg'])
+                peers.append((msg['msg'], msg['uuid']))
                 
                 if(msg["cmd"] == "INIT"):
                     #SendMessage(msg["msg"], "Not Leader")
@@ -74,7 +77,7 @@ class SendMessage():
         self.bcip = '192.168.178.255'
         self.bcport = 59073
         my_host = socket.gethostname()
-        my_ip = socket.gethostbyname(my_host)
+        my_ip = IP_ADDR # socket.gethostbyname(my_host)
         self.msg = {
             "cmd": command,
             "uuid": str(UUID),
@@ -99,7 +102,7 @@ class BroadcastSender():
         self.bcip = '192.168.178.255'
         self.bcport = 59073
         my_host = socket.gethostname()
-        my_ip = socket.gethostbyname(my_host)
+        my_ip = IP_ADDR
         self.msg = {
             "cmd": "INIT",
             "uuid": str(UUID),
@@ -112,6 +115,8 @@ class BroadcastSender():
     def broadcast(self, ip, port, message):
         # Create a UDP socket
         broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # Send message on broadcast address
         broadcast_socket.sendto(encodeMessage(message), (ip, port))
 
@@ -126,7 +131,7 @@ class TCPUnicastSender():
         self.UUID = UUID
         self.recipientIP = recipientIP
         self.hostname = socket.gethostname()
-        self.ip_address = socket.gethostbyname(self.hostname)
+        self.ip_address = IP_ADDR
         self.msg = {
             "cmd": "INIT_RESPONSE",
             "uuid": str(self.UUID),
@@ -153,22 +158,26 @@ class MessageInterpreter():
         #self.conn = conn
 
         if(self.command == 'INIT_RESPONSE'):
-            self.addPeerToList(self.ip_addr)
+            self.addPeerToList(self.ip_addr, self.id)
             #conn.close()
         if(self.command == 'SUCCESS'):
+            pass
+        if(self.command == 'VOTING_INIT'):
+            pass
+        if(self.command == 'VOTING_ELECTED'):
             pass
         if(self.command == 'AWAKE'):
             pass
         if(self.command == 'HEARTBEAT'):
             pass
 
-    def removePeerFromList(self, ip_addr):
-        peers.remove(ip_addr)
+    def removePeerFromList(self, ip_addr, id):
+        peers.remove((ip_addr, id))
         print(peers)
             
 
-    def addPeerToList(self, ip_addr):
-        peers.append(ip_addr)
+    def addPeerToList(self, ip_addr, id):
+        peers.append((ip_addr, id))
         print(peers)
 
 class TCPUnicastListener(Thread):
@@ -177,7 +186,7 @@ class TCPUnicastListener(Thread):
         self.UUID = UUID
         self.listeningPort = listeningPort
         self.host = socket.gethostname()
-        self.ip_addr = socket.gethostbyname(self.host)
+        self.ip_addr = IP_ADDR
 
     def run(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -230,7 +239,7 @@ class HeartbeatListener(Thread):
         Thread.__init__(self)
         self.heartbeat_port = heartbeat_port
         self.host = socket.gethostname()
-        self.ip_addr = socket.gethostbyname(self.host)
+        self.ip_addr = IP_ADDR
         self.UUID = UUID
 
         print("Heartbeat starting...")
@@ -268,7 +277,7 @@ class HeartbeatSender():
         self.UUID = UUID
         self.recipientIP = recipientIP
         self.hostname = socket.gethostname()
-        self.ip_address = socket.gethostbyname(self.hostname)
+        self.ip_address = IP_ADDR
         self.msg = {
             "cmd": "HEARTBEAT",
             "uuid": str(self.UUID),
@@ -278,6 +287,7 @@ class HeartbeatSender():
         self.sendMessage(self.recipientIP, self.uport, self.msg)
 
     def sendMessage(self, recipientIP, uport, message):
+        ## try
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         print(recipientIP, uport)
         s.connect_ex((recipientIP, uport))
@@ -285,12 +295,50 @@ class HeartbeatSender():
         data = s.recv(1024)
         s.close()
         print('TCP Received: ', repr(data))
+        ## expect socket.error: 
+        ### counter ++
+
+        ## if counter > 2 : communicate Lost peer
+
     
 class Voting():
     def __init__(self):
+        self.isLeader = False
+        self.isLeaderElected = False
+        self.sortedList = self.sortList()
+        self.rightNeigbor = self.findRightNeigbor()
+        self.leftNeigbor = self.findLeftNeigbor()
         pass
 
+    def sortList(self):
+        self.sortedList = sorted(peers, key=lambda peers: peers[0])
+        print("Sorted List: ", self.sortedList)
+
+    # also needed for heartbeat
+    def findRightNeigbor(self):
+        myIndex = self.sortedList.index(MY_IP)
+        if myIndex != 0 and self.sortedList[myIndex][1] != UUID:
+            return self.sortedList[myIndex - 1]
+        elif myIndex == 0:
+            return self.sortedList[len(self.sortedList) - 1]
+    
+    # also needed for heartbeat
+    def findLeftNeigbor(self):
+        myIndex = self.sortedList.index(MY_IP)
+        if myIndex != (len(self.sortedList) - 1) and self.sortedList[myIndex][1] != UUID:
+            return self.sortedList[myIndex - 1]
+        elif myIndex == (len(self.sortedList) - 1):
+            return self.sortedList[0]
+
+    def validateIncomingMessage(self):
+        # do the checking and pass the higher UUID. 
+        pass  
+
     def vote(self):
+        # needs msg as arg - otherwise we have conflicts! 
+        # send message to left neighbor
+        #TCPUnicastSender(UUID, self.leftNeigbor[0])
+
         pass
 
 class Game():
