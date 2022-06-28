@@ -9,9 +9,7 @@ from json import loads, dumps
 import threading
 import os
 
-from CommonUtil import encodeMessage, decodeMessage, get_lan_ip, IP_ADDR
-from Middleware.test import sortList
-from sample_code.broadcastsender import MY_IP
+from CommonUtil import encodeMessage, decodeMessage, getBroadcastIP, IP_ADDR
 
 
 #Global var if this Peer is the leader - set to True after Voting
@@ -67,6 +65,13 @@ class BroadcastListener(Thread):
                             "msg": self.ip_address
                         }
                         TCPUnicastSender(UUID, msg['msg'], res)
+                # elif: "LOST_NEIGBOR"
+                # drop from list
+                # check if list <=3
+                # (stop game, wait for new peer)
+                # (else: send updated list via Broadcast)
+
+
 
                 if(msg["cmd"] == "Not Leader"):
                     leader = False
@@ -79,7 +84,7 @@ class BroadcastListener(Thread):
 
 class SendMessage():
     def __init__(self, message, command):
-        self.bcip = '192.168.178.255'
+        self.bcip = getBroadcastIP()
         self.bcport = 59073
         my_host = socket.gethostname()
         my_ip = IP_ADDR # socket.gethostbyname(my_host)
@@ -104,7 +109,7 @@ class SendMessage():
 
 class BroadcastSender():
     def __init__(self):
-        self.bcip = '192.168.178.255'
+        self.bcip = getBroadcastIP()
         self.bcport = 59073
         my_host = socket.gethostname()
         my_ip = IP_ADDR
@@ -298,8 +303,11 @@ class HeartbeatSender():
         print('TCP Received: ', repr(data))
         ## expect socket.error: 
         ### counter ++
+        ### pass
 
         ## if counter > 2 : communicate Lost peer
+        #TCPUnicastSender(UUID, leaderIP, {"cmd": "LOST_NEIGBOR"})
+        # Leader: Broadcast -> updated player list
 
     
 class Voting():
@@ -314,10 +322,11 @@ class Voting():
     def sortList(self):
         self.sortedList = sorted(peers, key=lambda peers: peers[0])
         print("Sorted List: ", self.sortedList)
+        #("192.168.172.xxx", str(UUID))
 
     # also needed for heartbeat
     def findRightNeigbor(self):
-        myIndex = self.sortedList.index(MY_IP)
+        myIndex = self.sortedList.index(IP_ADDR)
         if myIndex != 0 and self.sortedList[myIndex][1] != UUID:
             return self.sortedList[myIndex - 1]
         elif myIndex == 0:
@@ -325,7 +334,7 @@ class Voting():
     
     # also needed for heartbeat
     def findLeftNeigbor(self):
-        myIndex = self.sortedList.index(MY_IP)
+        myIndex = self.sortedList.index(IP_ADDR)
         if myIndex != (len(self.sortedList) - 1) and self.sortedList[myIndex][1] != UUID:
             return self.sortedList[myIndex - 1]
         elif myIndex == (len(self.sortedList) - 1):
@@ -359,7 +368,7 @@ class Voting():
                 leaderIp = (msg["msg"],msg["uuid"])
                 TCPUnicastSender(UUID, self.leftNeigbor[0], msg)
         else:
-            if UUID == receivedIP:
+            if UUID == receivedUUID:
                 response = {
                     "cmd": "VOTING",
                     "uuid": str(UUID),
@@ -368,9 +377,10 @@ class Voting():
                 }
                 TCPUnicastSender(UUID, self.leftNeigbor[0], response)
             elif self.isOwnUuidIsHigher(UUID, receivedUUID):
+                # probably ignore this elif
                 response = {
                     "cmd": "VOTING",
-                    "uuid": str(UUID),
+                    "uuid": str(UUID), 
                     "msg": self.ip_address,
                     "leaderElected" : False
                 }
@@ -380,6 +390,8 @@ class Voting():
         pass
 
     def isOwnUuidIsHigher(self, UUID, receivedUUID):
+        # cast received string back to UUID Object to cast it to int again :) 
+        # int(UUID(receivedUUID))???
         if int(UUID) > int(receivedUUID):
             return True
         return False
@@ -424,13 +436,23 @@ if __name__ == '__main__':
         # Broadcast Sender
         BSender = BroadcastSender()
 
+        
         # Voting bevor Gamestart vom Leader (Voting sollte nur von einem Peer gestartet werden)
         # Im voting muss dann das sortieren der uuid passieren
         vote = Voting()
-        vote.vote()
+        vote.startVote()
 
+        heartbeat = HeartbeatListener(59071, UUID)
+        heartbeat.start()
 
-
+        # neuer Thread!
+        time.sleep(2)
+        while True: 
+            time.sleep(3)
+            heartbeatSender = HeartbeatSender(UUID, vote.leftNeigbor)
+            heartbeatSender = HeartbeatSender(UUID, vote.rightNeigbor)
+            # wenn ausfällt, dann neues Voting
+        # Thread Ende
         # Soll nur beim Leader starten
         if leader == True:
             game = Game()
