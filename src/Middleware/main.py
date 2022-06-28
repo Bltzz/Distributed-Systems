@@ -65,7 +65,7 @@ class BroadcastListener(Thread):
                             "msg": self.ip_address
                         }
                         TCPUnicastSender(UUID, msg['msg'], res)
-                # elif: "LOST_NEIGBOR"
+                # elif: "LOST_NEIGHBOR"
                 # drop from list
                 # check if list <=3
                 # (stop game, wait for new peer)
@@ -306,7 +306,7 @@ class HeartbeatSender():
         ### pass
 
         ## if counter > 2 : communicate Lost peer
-        #TCPUnicastSender(UUID, leaderIP, {"cmd": "LOST_NEIGBOR"})
+        #TCPUnicastSender(UUID, leaderIP, {"cmd": "LOST_NEIGHBOR"})
         # Leader: Broadcast -> updated player list
 
     
@@ -315,8 +315,8 @@ class Voting():
         self.ip_address = ip
         self.isLeaderElected = False
         self.sortedList = self.sortList()
-        self.rightNeigbor = self.findRightNeigbor()
-        self.leftNeigbor = self.findLeftNeigbor()
+        self.rightNeighbor = self.findRightNeighbor()
+        self.leftNeighbor = self.findLeftNeighbor()
         pass
 
     def sortList(self):
@@ -325,7 +325,7 @@ class Voting():
         #("192.168.172.xxx", str(UUID))
 
     # also needed for heartbeat
-    def findRightNeigbor(self):
+    def findRightNeighbor(self):
         myIndex = self.sortedList.index(IP_ADDR)
         if myIndex != 0 and self.sortedList[myIndex][1] != UUID:
             return self.sortedList[myIndex - 1]
@@ -333,7 +333,7 @@ class Voting():
             return self.sortedList[len(self.sortedList) - 1]
     
     # also needed for heartbeat
-    def findLeftNeigbor(self):
+    def findLeftNeighbor(self):
         myIndex = self.sortedList.index(IP_ADDR)
         if myIndex != (len(self.sortedList) - 1) and self.sortedList[myIndex][1] != UUID:
             return self.sortedList[myIndex - 1]
@@ -353,7 +353,7 @@ class Voting():
             "msg": self.ip_address,
             "leaderElected": False
         }
-        TCPUnicastSender(UUID, self.leftNeigbor[0], msg)
+        TCPUnicastSender(UUID, self.leftNeighbor[0], msg)
         pass
 
     def respondWithLCRAlgorithmToVote(self, msg):
@@ -366,7 +366,7 @@ class Voting():
                 leader = False
                 # TODO: where to put leader ip?
                 leaderIp = (msg["msg"],msg["uuid"])
-                TCPUnicastSender(UUID, self.leftNeigbor[0], msg)
+                TCPUnicastSender(UUID, self.leftNeighbor[0], msg)
         else:
             if UUID == receivedUUID:
                 response = {
@@ -375,7 +375,7 @@ class Voting():
                     "msg": self.ip_address,
                     "leaderElected" : True
                 }
-                TCPUnicastSender(UUID, self.leftNeigbor[0], response)
+                TCPUnicastSender(UUID, self.leftNeighbor[0], response)
             elif self.isOwnUuidIsHigher(UUID, receivedUUID):
                 # probably ignore this elif
                 response = {
@@ -384,17 +384,13 @@ class Voting():
                     "msg": self.ip_address,
                     "leaderElected" : False
                 }
-                TCPUnicastSender(UUID, self.leftNeigbor[0], response)
+                TCPUnicastSender(UUID, self.leftNeighbor[0], response)
             else:
-                TCPUnicastSender(UUID, self.leftNeigbor[0], msg)
+                TCPUnicastSender(UUID, self.leftNeighbor[0], msg)
         pass
 
     def isOwnUuidIsHigher(self, UUID, receivedUUID):
-        # cast received string back to UUID Object to cast it to int again :) 
-        # int(UUID(receivedUUID))???
-        if int(UUID) > int(receivedUUID):
-            return True
-        return False
+        return int(UUID) > int(uuid.UUID(receivedUUID))
 
 class Game():
     def __init__(self):
@@ -449,8 +445,8 @@ if __name__ == '__main__':
         time.sleep(2)
         while True: 
             time.sleep(3)
-            heartbeatSender = HeartbeatSender(UUID, vote.leftNeigbor)
-            heartbeatSender = HeartbeatSender(UUID, vote.rightNeigbor)
+            heartbeatSender = HeartbeatSender(UUID, vote.leftNeighbor)
+            heartbeatSender = HeartbeatSender(UUID, vote.rightNeighbor)
             # wenn ausfällt, dann neues Voting
         # Thread Ende
         # Soll nur beim Leader starten
