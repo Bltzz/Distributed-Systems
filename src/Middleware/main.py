@@ -14,10 +14,10 @@ from Middleware.test import sortList
 from sample_code.broadcastsender import MY_IP
 
 
-#Leader vom SPiel
-leader = True
+#Global var if this Peer is the leader - set to True after Voting
+leader = False
 
-#Liste der Peers (sollte ein Tuple werden wegen der uuid)
+#List of Peers Tupel(ip, uuid)
 peers = []
 
 UUID = uuid.uuid4()
@@ -61,7 +61,12 @@ class BroadcastListener(Thread):
                         #print("Leader ?: ",leader)
                     else:
                         print(UUID)
-                        TCPUnicastSender(UUID, msg['msg'])
+                        res = {
+                            "cmd": "INIT_RESPONSE",
+                            "uuid": str(self.UUID),
+                            "msg": self.ip_address
+                        }
+                        TCPUnicastSender(UUID, msg['msg'], res)
 
                 if(msg["cmd"] == "Not Leader"):
                     leader = False
@@ -126,17 +131,13 @@ class BroadcastSender():
 
 class TCPUnicastSender():
 
-    def __init__(self, UUID, recipientIP):
+    def __init__(self, UUID, recipientIP, msg):
         self.uport = 59072
         self.UUID = UUID
         self.recipientIP = recipientIP
         self.hostname = socket.gethostname()
         self.ip_address = IP_ADDR
-        self.msg = {
-            "cmd": "INIT_RESPONSE",
-            "uuid": str(self.UUID),
-            "msg": self.ip_address
-        }
+        self.msg = msg
         print("SEND TCP Message: ", self.msg, self.recipientIP)
         self.sendMessage(self.recipientIP, self.uport, self.msg)
 
@@ -162,9 +163,9 @@ class MessageInterpreter():
             #conn.close()
         if(self.command == 'SUCCESS'):
             pass
-        if(self.command == 'VOTING_INIT'):
-            pass
-        if(self.command == 'VOTING_ELECTED'):
+        if(self.command == 'VOTING'):
+            voting_instance = Voting(self.ip_addr)
+            voting_instance.respondWithLCRAlgorithmToVote(data)
             pass
         if(self.command == 'AWAKE'):
             pass
@@ -302,8 +303,8 @@ class HeartbeatSender():
 
     
 class Voting():
-    def __init__(self):
-        self.isLeader = False
+    def __init__(self, ip):
+        self.ip_address = ip
         self.isLeaderElected = False
         self.sortedList = self.sortList()
         self.rightNeigbor = self.findRightNeigbor()
@@ -334,12 +335,54 @@ class Voting():
         # do the checking and pass the higher UUID. 
         pass  
 
-    def vote(self):
+    def startVote(self):
         # needs msg as arg - otherwise we have conflicts! 
         # send message to left neighbor
-        #TCPUnicastSender(UUID, self.leftNeigbor[0])
-
+        msg =  {
+            "cmd": "VOTING",
+            "uuid": str(self.UUID),
+            "msg": self.ip_address,
+            "leaderElected": False
+        }
+        TCPUnicastSender(UUID, self.leftNeigbor[0], msg)
         pass
+
+    def respondWithLCRAlgorithmToVote(self, msg):
+        receivedUUID = msg["uuid"]
+        receivedIP = msg["msg"]
+        isLeaderElected = msg["leaderElected"]
+        if isLeaderElected:
+            if receivedIP != self.ip_address:
+                self.isLeaderElected = True
+                leader = False
+                # TODO: where to put leader ip?
+                leaderIp = (msg["msg"],msg["uuid"])
+                TCPUnicastSender(UUID, self.leftNeigbor[0], msg)
+        else:
+            if UUID == receivedIP:
+                response = {
+                    "cmd": "VOTING",
+                    "uuid": str(UUID),
+                    "msg": self.ip_address,
+                    "leaderElected" : True
+                }
+                TCPUnicastSender(UUID, self.leftNeigbor[0], response)
+            elif self.isOwnUuidIsHigher(UUID, receivedUUID):
+                response = {
+                    "cmd": "VOTING",
+                    "uuid": str(UUID),
+                    "msg": self.ip_address,
+                    "leaderElected" : False
+                }
+                TCPUnicastSender(UUID, self.leftNeigbor[0], response)
+            else:
+                TCPUnicastSender(UUID, self.leftNeigbor[0], msg)
+        pass
+
+    def isOwnUuidIsHigher(self, UUID, receivedUUID):
+        if int(UUID) > int(receivedUUID):
+            return True
+        return False
 
 class Game():
     def __init__(self):
