@@ -205,7 +205,7 @@ class TCPUnicastListener(Thread):
             s.listen(1)
             conn, addr = s.accept()
             print("New connection added: ", addr)
-            newthread = TCPUnicastHandler(conn, addr, self.UUID, self.ip_addr)
+            newthread = TCPUnicastHandler(conn, addr, self.UUID, self.ip_addr) #missing: execute in a new thread
             newthread.start()
 
 class TCPUnicastHandler(Thread):
@@ -390,7 +390,7 @@ class Voting():
         pass
 
     def isOwnUuidIsHigher(self, UUID, receivedUUID):
-        return int(UUID) > int(uuid.UUID(receivedUUID))
+        return (int(UUID) > int(uuid.UUID(receivedUUID)))
 
 class Game():
     def __init__(self):
@@ -437,6 +437,8 @@ if __name__ == '__main__':
         # Im voting muss dann das sortieren der uuid passieren
         vote = Voting()
         vote.startVote()
+
+        #TODO: Loop untill voting.lead_is_elected == True: Then start listening for heartbeats
 
         heartbeat = HeartbeatListener(59071, UUID)
         heartbeat.start()
