@@ -59,6 +59,11 @@ class BroadcastListener(Thread):
                         print("Es wird keine TCP Nachricht verschickt")
                         #leader= True #Vorläufiger leader
                         #print("Leader ?: ",leader)
+                        time.sleep(2)
+                        # Der neue joiner startet ein Voting
+                        vote = Voting()
+                        vote.startVote()
+
                     else:
                         print(UUID)
                         res = {
@@ -280,10 +285,11 @@ class HeartbeatListener(Thread):
         conn.close()
 
 class HeartbeatSender():
-    def __init__(self, UUID, recipientIP):
+    def __init__(self, UUID, recipientPeer):
         self.uport = 59071
         self.UUID = UUID
-        self.recipientIP = recipientIP
+        self.recipientIP = recipientPeer[0]
+        self.recipientUUID = recipientPeer[1]
         self.hostname = socket.gethostname()
         self.ip_address = IP_ADDR
         self.msg = {
@@ -359,7 +365,7 @@ class Voting():
         receivedIP = msg["msg"]
         isLeaderElected = msg["leaderElected"]
         if isLeaderElected:
-            if receivedIP != self.ip_address:
+            if receivedUUID != self.UUID:
                 self.isLeaderElected = True
                 leader = False
                 # TODO: where to put leader ip?
@@ -436,7 +442,7 @@ if __name__ == '__main__':
 
         while len(peers) < 3:
             time.sleep(1)
-        
+        '''
         time.sleep(3)
 
         input("Write 'start' to start the game: ")
@@ -466,7 +472,7 @@ if __name__ == '__main__':
         # Heartbeat (TCP Unicast)
         #heartbeat = HeartbeatListener(59071, UUID)
         #heartbeat.start()
-
+        '''
 
 
 
