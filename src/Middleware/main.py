@@ -1,4 +1,5 @@
 
+from ipaddress import ip_address
 import socket
 from threading import Thread
 import time
@@ -27,6 +28,7 @@ class BroadcastListener(Thread):
         self.bcport = 59073
         self.my_host = socket.gethostname()
         self.my_ip = IP_ADDR # from CommonUtil # socket.gethostbyname(self.my_host)
+        self.UUID = UUID
         print("My IP: "+self.my_ip)
 
         # Create a UDP socket
@@ -62,7 +64,7 @@ class BroadcastListener(Thread):
                         res = {
                             "cmd": "INIT_RESPONSE",
                             "uuid": str(self.UUID),
-                            "msg": self.ip_address
+                            "msg": self.my_ip
                         }
                         TCPUnicastSender(UUID, msg['msg'], res)
                 # elif: "LOST_NEIGHBOR"
@@ -184,7 +186,7 @@ class MessageInterpreter():
 
     def addPeerToList(self, ip_addr, id):
         peers.append((ip_addr, id))
-        print(peers)
+        print("Peers: ", peers)
 
 class TCPUnicastListener(Thread):
     def __init__(self, listeningPort, UUID):
@@ -311,8 +313,9 @@ class HeartbeatSender():
 
     
 class Voting():
-    def __init__(self, ip):
-        self.ip_address = ip
+    def __init__(self):
+        self.ip_address = IP_ADDR
+        self.UUID = str(UUID)
         self.isLeaderElected = False
         self.sortedList = self.sortList()
         self.rightNeighbor = self.findRightNeighbor()
@@ -323,22 +326,17 @@ class Voting():
         self.sortedList = sorted(peers, key=lambda peers: peers[0])
         print("Sorted List: ", self.sortedList)
         #("192.168.172.xxx", str(UUID))
+        return self.sortedList
 
     # also needed for heartbeat
     def findRightNeighbor(self):
-        myIndex = self.sortedList.index(IP_ADDR)
-        if myIndex != 0 and self.sortedList[myIndex][1] != UUID:
-            return self.sortedList[myIndex - 1]
-        elif myIndex == 0:
-            return self.sortedList[len(self.sortedList) - 1]
+        myIndex = self.sortedList.index((self.ip_address, self.UUID))
+        return self.sortedList[(myIndex + 1) % len(self.sortedList)] # use modulo to implement the list as ring
     
     # also needed for heartbeat
     def findLeftNeighbor(self):
-        myIndex = self.sortedList.index(IP_ADDR)
-        if myIndex != (len(self.sortedList) - 1) and self.sortedList[myIndex][1] != UUID:
-            return self.sortedList[myIndex - 1]
-        elif myIndex == (len(self.sortedList) - 1):
-            return self.sortedList[0]
+        myIndex = self.sortedList.index((self.ip_address, self.UUID))
+        return self.sortedList[(myIndex - 1) % len(self.sortedList)] # use modulo to implement the list as ring
 
     def validateIncomingMessage(self):
         # do the checking and pass the higher UUID. 
@@ -353,7 +351,7 @@ class Voting():
             "msg": self.ip_address,
             "leaderElected": False
         }
-        TCPUnicastSender(UUID, self.leftNeighbor[0], msg)
+        TCPUnicastSender(self.UUID, self.leftNeighbor[0], msg)
         pass
 
     def respondWithLCRAlgorithmToVote(self, msg):
@@ -435,6 +433,14 @@ if __name__ == '__main__':
         
         # Voting bevor Gamestart vom Leader (Voting sollte nur von einem Peer gestartet werden)
         # Im voting muss dann das sortieren der uuid passieren
+
+        while len(peers) < 3:
+            time.sleep(1)
+        
+        time.sleep(3)
+
+        input("Write 'start' to start the game: ")
+
         vote = Voting()
         vote.startVote()
 

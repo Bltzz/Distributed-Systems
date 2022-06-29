@@ -51,9 +51,9 @@ else:
 
 
 #If host uses a 127. IP -> read the IP from a .txt file containing the correct IP
-# if "192" not in IP_ADDR[:4]:
-#     with open('../DS-IP.txt', 'r') as file:
-#         IP_ADDR = file.read().replace('\n', '')
+if "192" not in IP_ADDR[:4]:
+    with open('../DS-IP.txt', 'r') as file:
+        IP_ADDR = file.read().replace('\n', '')
 
 def getIP():
     return IP_ADDR
