@@ -47,46 +47,21 @@ class BroadcastListener(Thread):
         while self.running:
             data, addr = self.listen_socket.recvfrom(1024)
             if data:
-                msg = decodeMessage(data)
-                print("Received broadcast message:", msg)
-                peers.append((msg['msg'], msg['uuid']))
-                
-                if(msg["cmd"] == "INIT"):
-                    #SendMessage(msg["msg"], "Not Leader")
-                    if(msg["msg"] == self.my_ip ):
-                        #Wenn Broadcast Nachricht zurück zum Broadcast Sender geht wird
-                        #keine TCP
-                        print("Es wird keine TCP Nachricht verschickt")
-                        #leader= True #Vorläufiger leader
-                        #print("Leader ?: ",leader)
-                        time.sleep(2)
-                        # Der neue joiner startet ein Voting
-                        vote = Voting()
-                        vote.startVote()
-
-                    else:
-                        print(UUID)
-                        res = {
-                            "cmd": "INIT_RESPONSE",
-                            "uuid": str(self.UUID),
-                            "msg": self.my_ip
-                        }
-                        TCPUnicastSender(UUID, msg['msg'], res)
-                # elif: "LOST_NEIGHBOR"
-                # drop from list
-                # check if list <=3
-                # (stop game, wait for new peer)
-                # (else: send updated list via Broadcast)
-
-
-
-                if(msg["cmd"] == "Not Leader"):
-                    leader = False
-                    print("Peer")
-                print("Peers: ", peers)
+                print("Received broadcast message:", decodeMessage(data))
+                newUDPThread = UDPBroadcastHandler(data)
+                newUDPThread.start()
 
     def stop(self):
         self.running = False
+
+class UDPBroadcastHandler(Thread):
+
+    def __init__(self, msg):
+        Thread.__init__(self)
+        self.msg = msg
+    
+    def run(self):
+        MessageInterpreter(self.msg)
 
 
 class SendMessage():
@@ -145,7 +120,7 @@ class TCPUnicastSender():
 
     def __init__(self, UUID, recipientIP, msg):
         self.uport = 59072
-        self.UUID = UUID
+        #self.UUID = UUID
         self.recipientIP = recipientIP
         self.hostname = socket.gethostname()
         self.ip_address = IP_ADDR
@@ -168,8 +143,31 @@ class MessageInterpreter():
         self.command = self.msg['cmd']
         self.ip_addr = self.msg['msg']
         self.id = self.msg['uuid']
+        self.my_ip_addr = IP_ADDR
+        self.my_id = UUID
         #self.conn = conn
 
+        if(self.command == 'INIT'):
+            peers.append((self.ip_addr, self.id))
+            if(self.ip_addr == self.my_ip_addr ):
+
+                # Wenn Broadcast Nachricht zurück zum Broadcast Sender geht wird keine TCP verschickt
+                print("Es wird keine TCP Nachricht verschickt")
+                time.sleep(2)
+
+                # Der neue joiner startet ein Voting
+                vote = Voting()
+                vote.startVote()
+
+            else:
+                print(self.my_id)
+                res = {
+                    "cmd": "INIT_RESPONSE",
+                    "uuid": str(self.my_id),
+                    "msg": self.my_ip_addr
+                }
+                TCPUnicastSender(self.my_id, self.ip_addr, res)
+            print("Peers: ", peers)
         if(self.command == 'INIT_RESPONSE'):
             self.addPeerToList(self.ip_addr, self.id)
             #conn.close()
@@ -183,6 +181,15 @@ class MessageInterpreter():
             pass
         if(self.command == 'HEARTBEAT'):
             pass
+        if(self.command == 'LOST_NEIGHBOR'):
+            # drop from list
+            # check if list <=3
+            # (stop game, wait for new peer)
+            # (else: send updated list via Broadcast)
+            pass
+        if(self.command == 'Not LEader'): #?????
+            leader = False
+            print("Peer")
 
     def removePeerFromList(self, ip_addr, id):
         peers.remove((ip_addr, id))
