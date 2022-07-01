@@ -12,6 +12,7 @@ from CommonUtil import encodeMessage, decodeMessage, getBroadcastIP, IP_ADDR
 
 
 #Global var if this Peer is the leader - set to True after Voting
+global leader
 leader = False
 leaderIpAndUUID = (None, None)
 
@@ -332,48 +333,49 @@ class HeartbeatSender(Thread):
         #self.sendMessage(self.recipientIP, self.uport, self.msg)
 
     def run(self):
-        self.sendMessage(self.rightNeighbor, self.uport, self.msg, "right")
-        time.sleep(2)
-        self.sendMessage(self.leftNeighbor, self.uport, self.msg, "left")
-        time.sleep(2)
+        while self.running:
+            self.sendMessage(self.rightNeighbor, self.uport, self.msg, "right")
+            time.sleep(1)
+            self.sendMessage(self.leftNeighbor, self.uport, self.msg, "left")
+            time.sleep(1)
         pass
        
 
     def sendMessage(self, neighbor, uport, message, direction):
-        while self.running:
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                #print(neighbor[0], uport)
-                s.connect_ex((neighbor[0], uport))
-                s.sendall(encodeMessage(message))
-                data = s.recv(1024)
-                time.sleep(1)
-                if not data:
-                    if direction == "right": 
-                        self.counterRight += 1
-                    elif direction == "left":
-                        self.counterLeft += 1
-                    break
-                print('TCP Received: ', repr(data))
-            except socket.error or Exception:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            #print(neighbor[0], uport)
+            s.connect_ex((neighbor[0], uport))
+            s.sendall(encodeMessage(message))
+            data = s.recv(1024)
+            time.sleep(1)
+            if not data:
                 if direction == "right": 
                     self.counterRight += 1
                 elif direction == "left":
                     self.counterLeft += 1
-            finally:
-                s.close
+                return
+            print('TCP Received: ', repr(data))
+        except socket.error or Exception:
+            if direction == "right": 
+                self.counterRight += 1
+            elif direction == "left":
+                self.counterLeft += 1
+        finally:
+            s.close
 
-            if self.counterLeft > 3 :
-                print(neighbor)
-                peers.remove(neighbor)
-                self.leftNeighbor = findLeftNeighbor(self.ip_address)
-                self.sendLostPeerMessage(neighbor)
-                pass
-            if self.counterRight > 3 :
-                print(neighbor)
-                peers.remove(neighbor)
-                self.rightNeighbor = findRightNeighbor(self.ip_address)
-                self.sendLostPeerMessage(neighbor)
+        if self.counterLeft > 3 :
+            print(neighbor)
+            peers.remove(neighbor)
+            self.leftNeighbor = findLeftNeighbor(self.ip_address)
+            self.sendLostPeerMessage(neighbor)
+            pass
+        if self.counterRight > 3 :
+            print(neighbor)
+            peers.remove(neighbor)
+            self.rightNeighbor = findRightNeighbor(self.ip_address)
+            self.sendLostPeerMessage(neighbor) #Broadcast an den leader?
+            #counter = 0?
         pass
 
     def sendLostPeerMessage(self, neighbor):
@@ -397,6 +399,7 @@ class Voting():
         self.sortedList = sortList()
         self.rightNeighbor = findRightNeighbor(self.ip_address)
         self.leftNeighbor = findLeftNeighbor(self.ip_address)
+        
         pass
 
 
@@ -414,6 +417,7 @@ class Voting():
         pass
 
     def respondWithLCRAlgorithmToVote(self, msg):
+        global leader
         print("Incoming Voting: ", msg)
         receivedUUID = msg["uuid"]
         receivedIP = msg["msg"]
@@ -501,7 +505,6 @@ if __name__ == '__main__':
         # Broadcast Sender
         BSender = BroadcastSender()
 
-        
         # Voting bevor Gamestart vom Leader (Voting sollte nur von einem Peer gestartet werden)
         # Im voting muss dann das sortieren der uuid passieren
 
@@ -512,14 +515,16 @@ if __name__ == '__main__':
 
         input("Write 'start' to start the game: ")
 
-        #vote = Voting()
-        #vote.startVote()
-
-        time.sleep(3)
         if leader:
             print("I AM THE LEADER!!!!!!!!!!!!!!")
         else:
             print("I am only another Peer in the ring!")
+
+        #vote = Voting()
+        #vote.startVote()
+
+        time.sleep(3)
+
         heartbeatSender = HeartbeatSender()
         heartbeatSender.start()
 
