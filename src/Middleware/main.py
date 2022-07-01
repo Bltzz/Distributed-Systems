@@ -14,6 +14,7 @@ from CommonUtil import encodeMessage, decodeMessage, getBroadcastIP, IP_ADDR
 #Global var if this Peer is the leader - set to True after Voting
 global leader
 leader = False
+global leaderIpAndUUID
 leaderIpAndUUID = (None, None)
 
 #List of Peers Tupel(ip, uuid)
@@ -163,6 +164,9 @@ class MessageInterpreter():
         self.my_ip_addr = IP_ADDR
         self.my_id = UUID
         #self.conn = conn
+        global leaderIpAndUUID
+        global peers
+        global leader
 
         if(self.command == 'INIT'):
             if(self.ip_addr == self.my_ip_addr ):
@@ -198,16 +202,31 @@ class MessageInterpreter():
             pass
         if(self.command == 'HEARTBEAT'):
             pass
-        if(self.command == 'LOST_NEIGHBOR'):
-            peerToRm = (self.ip_addr, self.id)
-            peers.remove(peerToRm)
-            #if len(peers) < 3 :
-             #   Game.stop()
-            # drop from list
-            # check if list <=3
-            # (stop game, wait for new peer)
-            # (else: send updated list via Broadcast)
+        if(self.command == 'LOST_PEER'):
+
+            try:
+                peers.remove((self.ip_addr, self.id))
+
+            except ValueError:
+                # Peer was already removed -> do nothing
+                pass
+
+            if leader and len(peers) < 3:
+                exit() # Replace later by Game.stop()
+                pass
+
             pass
+        if(self.command == 'LOST_NEIGHBOR'):
+            # Only the leader can receive this kind of message
+
+            msgLostPeer = {
+                "cmd": "LOST_PEER",
+                "uuid": self.UUID,
+                "msg": self.ip_address
+            }
+
+            BSender.broadcast(self, BSender.bcip, BSender.bcport, msgLostPeer)
+
 
     def removePeerFromList(self, ip_addr, id):
         peers.remove((ip_addr, id))
@@ -319,8 +338,8 @@ class HeartbeatSender(Thread):
         self.ip_address = IP_ADDR
         self.counterLeft = 0
         self.counterRight = 0
-        self.rightNeighbor = findRightNeighbor(self.ip_address)
-        self.leftNeighbor = findLeftNeighbor(self.ip_address)
+        #self.rightNeighbor = findRightNeighbor(self.ip_address)
+        #self.leftNeighbor = findLeftNeighbor(self.ip_address)
         #self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         #self.recipientIP = recipientPeer[0]
         #self.recipientUUID = recipientPeer[1]
@@ -334,9 +353,9 @@ class HeartbeatSender(Thread):
 
     def run(self):
         while self.running:
-            self.sendMessage(self.rightNeighbor, self.uport, self.msg, "right")
+            self.sendMessage(findRightNeighbor(self.ip_address), self.uport, self.msg, "right") #Need to search neighbor each time again in case the peers list changed
             time.sleep(1)
-            self.sendMessage(self.leftNeighbor, self.uport, self.msg, "left")
+            self.sendMessage(findLeftNeighbor(self.ip_address), self.uport, self.msg, "left") #Need to search neighbor each time again in case the peers list changed
             time.sleep(1)
         pass
        
@@ -365,26 +384,51 @@ class HeartbeatSender(Thread):
             s.close
 
         if self.counterLeft > 3 :
-            print(neighbor)
-            peers.remove(neighbor)
-            self.leftNeighbor = findLeftNeighbor(self.ip_address)
+            print("Left neighbor lost: ", neighbor)
+            #peers.remove(neighbor)
+            #self.leftNeighbor = findLeftNeighbor(self.ip_address)
             self.sendLostPeerMessage(neighbor)
+            self.counterLeft = 0
             pass
         if self.counterRight > 3 :
-            print(neighbor)
-            peers.remove(neighbor)
-            self.rightNeighbor = findRightNeighbor(self.ip_address)
+            print("Right neighbor lost: ", neighbor)
+            #peers.remove(neighbor)
+            #self.rightNeighbor = findRightNeighbor(self.ip_address)
             self.sendLostPeerMessage(neighbor) #Broadcast an den leader?
-            #counter = 0?
+            self.counterRight = 0
         pass
 
     def sendLostPeerMessage(self, neighbor):
-        msgLostPeer = {
-                    "cmd": "LOST_NEIGHBOR",
-                    "uuid": neighbor[1],
-                    "msg": neighbor[0]
-                }                
-        TCPUnicastSender(self.UUID, self.leftNeighbor[0], msgLostPeer)
+        global leaderIpAndUUID
+        global leader
+        
+        if neighbor[0] == leaderIpAndUUID[0]:
+            # Leader got lost. --> Detecting peer takes temporary leader role, broadcasts the lost leader and starts new leader voting
+            
+            leader = True
+
+            msgLostPeer = {
+                "cmd": "LOST_PEER",
+                "uuid": neighbor[1],
+                "msg": neighbor[0]
+            }
+
+            BSender.broadcast(self, BSender.bcip, BSender.bcport, msgLostPeer)
+
+            time.sleep(1)
+
+            vote = Voting()
+            vote.start()
+
+        else:
+            # The detecting peer informs the leader about the lost peer
+            msgLostNeighbor = {
+                        "cmd": "LOST_NEIGHBOR",
+                        "uuid": neighbor[1],
+                        "msg": neighbor[0]
+                    }
+
+            TCPUnicastSender(self.UUID, leaderIpAndUUID[0], msgLostNeighbor)
         ## if counter > 2 : communicate Lost peer
         #TCPUnicastSender(UUID, leaderIP, {"cmd": "LOST_NEIGHBOR"})
         # Leader: Broadcast -> updated player list
@@ -399,10 +443,7 @@ class Voting():
         self.sortedList = sortList()
         self.rightNeighbor = findRightNeighbor(self.ip_address)
         self.leftNeighbor = findLeftNeighbor(self.ip_address)
-        
         pass
-
-
 
     def startVote(self):
         # needs msg as arg - otherwise we have conflicts! 
@@ -418,6 +459,7 @@ class Voting():
 
     def respondWithLCRAlgorithmToVote(self, msg):
         global leader
+        global leaderIpAndUUID
         print("Incoming Voting: ", msg)
         receivedUUID = msg["uuid"]
         receivedIP = msg["msg"]
@@ -427,9 +469,11 @@ class Voting():
                 self.isLeaderElected = True
                 leader = False
                 # TODO: where to put leader ip?
-                leaderIpAndUUID = (msg["msg"],msg["uuid"])
+                
+                print(leaderIpAndUUID)
                 print("My election forward response: ", msg)
                 TCPUnicastSender(self.UUID, self.leftNeighbor[0], msg)
+            leaderIpAndUUID = (msg["msg"],msg["uuid"])
         else:
             if self.UUID == receivedUUID:
                 leader = True
@@ -514,6 +558,9 @@ if __name__ == '__main__':
         time.sleep(3)
 
         input("Write 'start' to start the game: ")
+
+        #print(leader)
+        print("This is our leader: ", leaderIpAndUUID)
 
         if leader:
             print("I AM THE LEADER!!!!!!!!!!!!!!")
