@@ -68,6 +68,7 @@ class BroadcastListener(Thread):
                 #print("Received broadcast message:", decodeMessage(data))
                 newUDPThread = UDPBroadcastHandler(data)
                 newUDPThread.start()
+                print("Broadcast received: ", decodeMessage(data))
 
     def stop(self):
         self.running = False
@@ -167,6 +168,7 @@ class MessageInterpreter():
         global leaderIpAndUUID
         global peers
         global leader
+        global BSender
 
         if(self.command == 'INIT'):
             if(self.ip_addr == self.my_ip_addr ):
@@ -203,29 +205,31 @@ class MessageInterpreter():
         if(self.command == 'HEARTBEAT'):
             pass
         if(self.command == 'LOST_PEER'):
-
+            print("My leader says we lost a peer!")
             try:
                 peers.remove((self.ip_addr, self.id))
-
+                print("Removed the lost peer from my list")
             except ValueError:
                 # Peer was already removed -> do nothing
+                print("I faild to remove the lost peer from my list. I probably did already before!")
                 pass
 
             if leader and len(peers) < 3:
-                exit() # Replace later by Game.stop()
+                print("Too less peers: STOP GAME!!!")
+                #Game.stop()
                 pass
 
             pass
         if(self.command == 'LOST_NEIGHBOR'):
             # Only the leader can receive this kind of message
-
+            print("One of my peers informed me that he lost his neighbor. Lets broadcast it to the whole ring.")
             msgLostPeer = {
                 "cmd": "LOST_PEER",
-                "uuid": self.UUID,
-                "msg": self.ip_address
+                "uuid": self.id,
+                "msg": self.ip_addr
             }
 
-            BSender.broadcast(self, BSender.bcip, BSender.bcport, msgLostPeer)
+            BSender.broadcast(BSender.bcip, BSender.bcport, msgLostPeer)
 
 
     def removePeerFromList(self, ip_addr, id):
@@ -371,15 +375,19 @@ class HeartbeatSender(Thread):
             if not data:
                 if direction == "right": 
                     self.counterRight += 1
+                    print("Right neighbor counter 'no data' +1")
                 elif direction == "left":
                     self.counterLeft += 1
+                    print("Left neighbor counter 'no data' +1")
                 return
-            print('TCP Received: ', repr(data))
+            print('TCP Received from', direction,'neighbor: ', repr(data))
         except socket.error or Exception:
             if direction == "right": 
                 self.counterRight += 1
+                print("Right neighbor counter 'socket error' +1")
             elif direction == "left":
                 self.counterLeft += 1
+                print("Left neighbor counter 'socket error' +1")
         finally:
             s.close
 
@@ -401,9 +409,12 @@ class HeartbeatSender(Thread):
     def sendLostPeerMessage(self, neighbor):
         global leaderIpAndUUID
         global leader
+        global BSender
         
         if neighbor[0] == leaderIpAndUUID[0]:
             # Leader got lost. --> Detecting peer takes temporary leader role, broadcasts the lost leader and starts new leader voting
+
+            print("OH NOOO! We lost our Leader :O I will do it temporarly!")
             
             leader = True
 
@@ -413,15 +424,16 @@ class HeartbeatSender(Thread):
                 "msg": neighbor[0]
             }
 
-            BSender.broadcast(self, BSender.bcip, BSender.bcport, msgLostPeer)
+            BSender.broadcast(BSender.bcip, BSender.bcport, msgLostPeer)
 
             time.sleep(1)
 
             vote = Voting()
-            vote.start()
+            vote.startVote()
 
         else:
             # The detecting peer informs the leader about the lost peer
+            print("I need to inform our leader that I lost my neighbor :(")
             msgLostNeighbor = {
                         "cmd": "LOST_NEIGHBOR",
                         "uuid": neighbor[1],
@@ -558,9 +570,6 @@ if __name__ == '__main__':
         time.sleep(3)
 
         input("Write 'start' to start the game: ")
-
-        #print(leader)
-        print("This is our leader: ", leaderIpAndUUID)
 
         if leader:
             print("I AM THE LEADER!!!!!!!!!!!!!!")
