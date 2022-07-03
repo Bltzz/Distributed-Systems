@@ -6,6 +6,8 @@ import uuid
 from json import loads, dumps
 import threading
 import os
+import random
+import csv
 
 from CommonUtil import encodeMessage, decodeMessage, getBroadcastIP, IP_ADDR
 
@@ -160,7 +162,7 @@ class MessageInterpreter():
     def __init__(self, data):
         self.msg = decodeMessage(data)
         self.command = self.msg['cmd']
-        self.ip_addr = self.msg['msg']
+        self.msg = self.msg['msg'] # Often it is an ip address
         self.id = self.msg['uuid']
         self.my_ip_addr = IP_ADDR
         self.my_id = UUID
@@ -171,7 +173,7 @@ class MessageInterpreter():
         global BSender
 
         if(self.command == 'INIT'):
-            if(self.ip_addr == self.my_ip_addr ):
+            if(self.msg == self.my_ip_addr ):
 
                 # Wenn Broadcast Nachricht zurück zum Broadcast Sender geht wird keine TCP verschickt
                 #print("Es wird keine TCP Nachricht verschickt")
@@ -182,17 +184,17 @@ class MessageInterpreter():
                 vote.startVote()
 
             else:
-                peers.append((self.ip_addr, self.id))
+                peers.append((self.msg, self.id))
                 #print(self.my_id)
                 res = {
                     "cmd": "INIT_RESPONSE",
                     "uuid": str(self.my_id),
                     "msg": self.my_ip_addr
                 }
-                TCPUnicastSender(self.my_id, self.ip_addr, res)
+                TCPUnicastSender(self.my_id, self.msg, res)
             print("Peers: ", peers)
         if(self.command == 'INIT_RESPONSE'):
-            self.addPeerToList(self.ip_addr, self.id)
+            self.addPeerToList(self.msg, self.id)
             #conn.close()
         if(self.command == 'SUCCESS'):
             pass
@@ -207,7 +209,7 @@ class MessageInterpreter():
         if(self.command == 'LOST_PEER'):
             print("My leader says we lost a peer!")
             try:
-                peers.remove((self.ip_addr, self.id))
+                peers.remove((self.msg, self.id))
                 print("Removed the lost peer from my list")
             except ValueError:
                 # Peer was already removed -> do nothing
@@ -216,7 +218,7 @@ class MessageInterpreter():
 
             if leader and len(peers) < 3:
                 print("Too less peers: STOP GAME!!!")
-                #Game.stop()
+                Game.changeState({"state": "WaitForStart"})
                 pass
 
             pass
@@ -226,10 +228,13 @@ class MessageInterpreter():
             msgLostPeer = {
                 "cmd": "LOST_PEER",
                 "uuid": self.id,
-                "msg": self.ip_addr
+                "msg": self.msg
             }
 
             BSender.broadcast(BSender.bcip, BSender.bcport, msgLostPeer)
+        
+        if(self.command == 'GAME'):
+            Game.changeState(self.msg)
 
 
     def removePeerFromList(self, ip_addr, id):
@@ -516,30 +521,163 @@ class Voting():
         return (int(uuid.UUID(UUID)) > int(uuid.UUID(receivedUUID)))
 
 class Game():
-    def __init__(self):
+    def __init__(self, uuid, ip):
+        self.running = True
         self.check = True
+        self.uuid = uuid
+        self.my_ip = ip
+        self.word_understood = None
+        self.POINTS_FOR_CORRECT_ANSWER = 10
+        self.PROB_FOR_ONE_WORD_DOWN = 0.33
+        self.PROB_FOR_SAME_WORD = 0.66
+        self.PROB_FOR_ONE_WORD_UP = 1
+        self.state = "WaitForStart"
+        self.message = None
 
-    def checkPlayer(self):
+        self.startGame()
+
+    def startGame(self):        
+        while self.running: # Check the current game state
+            if self.state == "WaitForStart": self.waitForStart()
+            elif self.state == "InsertWord": self.insertWord(self.message)
+            elif self.state == "WaitForWord": self.waitForWord()
+            elif self.state == "WaitForResult": self.waitForResult()
+            elif self.state == "ProcessResult": self.processResult(self.message)
+            time.sleep(1)
+
+    def changeState(self, msg):
+        self.state = msg['state']
+        pass
+
+    def waitForStart(self):
+        global BSender
+        global leader
         
         # Solange es keine 3 Player gibt geht es nicht weiter
-        while self.check:
-            if(len(peers) >= 3):
-                self.check = False
-            else:
-                pass
-        print("If you want to start the game write 'startGame' (without spacing)")
-        start= input()
-
-        if (start.lower() == "startgame"):
-            time.sleep(5)
-            self.startGame()
-        else:
+        while (len(peers) >= 3):
+            time.sleep(0.5)
             pass
 
-    def startGame(self):
-        print("Game start...")
+        if leader:
+            print("If you want to start the game write 'startGame' (without spacing)")
+            start= input()
+
+            if (start.lower() == "startgame"):
+
+                msgStateChange = {
+                    "cmd": "GAME",
+                    "uuid": self.uuid,
+                    "msg": {"state": "WaitForWord", "ip": self.my_ip}
+                }
+
+                BSender.broadcast(BSender.bcip, BSender.bcport, msgStateChange)
+
+                self.state = "InsertWord"
+                
+            else:
+                pass
+
+        elif not leader:
+            print("Wait until the leader starts the game ...")
+            while self.state == "WaitForStart":
+                time.sleep(1)
+
+    def insertWord(self, msg):
+        global leader
+        
+        if leader:
+            print("You are the leader. Please choose a word from the csv file and write it down:")
+            self.word_understood = input().lower()
+
+            msgStateChange = {
+                "cmd": "GAME",
+                "uuid": self.uuid,
+                "msg": {"state": "insertWord", "whisperedWords": [(self.my_ip, self.word_understood)]}
+            }
+
+            self.state = "ProcessResult"
+
+        elif not leader:
+            print(f'PSSSSST 🤫 {msg["whisperedWords"][-1][0]} whispered the word "{msg["whisperedWords"][-1][1]}". Please forward it quietly:')
+            self.word_understood = input().lower()
+            self.word_understood = self.tellWordToNeighbour(self, self.word_understood)
+
+            msgStateChange = {
+                "cmd": "GAME",
+                "uuid": self.uuid,
+                "msg": {"state": "insertWord", "whisperedWords": msg["whisperedWords"].append((self.my_ip, self.word_understood))}
+            }
+
+            self.state = "WaitForResult"
+        
+        TCPUnicastSender(self.uuid, findRightNeighbor(self.my_ip)[0], msgStateChange)
+
+    def waitForWord(self):
+        print("Waiting for your neighbor to whisper a word ...")
+        while self.state == "WaitForWord":
+            time.sleep(1)
+            
+
+    def waitForResult(self, msg):
+        print("Great job! Now wait for the leader to announce the result.")
+
+        while self.state == "WaitForResult":
+            time.sleep(1)
+
+        print('The game is over!')
+        print("This is what happend: " + " -> ".join([word[1] for word in msg["result"]])) # print the chain of whispered words
+        print(f'The final word is "{msg["result"][-1][1]}".')
+        print(f'The real word was "{msg["result"][0][1]}".')
+
+        if msg["result"][-1][1] == msg["result"][0][1]:
+            print("Congratulations! The team has won.")
+        else:
+            print("Oh no! The team has lost. But you have the chance to try again now.")
+
+    def processResult(self, msg): # Only the leader should be able to come into this state
+        while self.state == "ProcessResult":
+            time.sleep(1)
+
+        msgStateChange = {
+            "cmd": "GAME",
+            "uuid": self.uuid,
+            "msg": {"state": "WaitForStart", "result": msg["whisperedWords"]}
+        }
+
+        self.waitForResult(msgStateChange)           
+
+        BSender.broadcast(BSender.bcip, BSender.bcport, msgStateChange)    
+    
+    def tellWordToNeighbour(self, word_understood):
+        prop = random.random()
+        #print(prop)
+        # find word in list
+        line = self.findWordInWordList(word_understood)
+        if line == None:
+            return None
+        index = line.index(word_understood)
+        # go up/down/stay
+        if prop < self.PROB_FOR_ONE_WORD_DOWN: # go one word up in word list
+            return line[(index - 1) % len(line)] # use modulo to implement the list as ring
+        elif prop >= self.PROB_FOR_ONE_WORD_DOWN and prop < self.PROB_FOR_SAME_WORD: # stay at same position in word list
+            return line[index]
+        else: # go one word up in word list
+            return line[(index + 1) % len(line)] # use modulo to implement the list as ring
+        # pass word to neighbour
         pass
-        # game code
+
+    def findWordInWordList(self, word):
+        with open('../../data/Rhymes.csv', mode ='r')as file:
+            csvFile = csv.reader(file)
+            lines_with_word = [] # Some words appear in more than one word list. Need to capture all of them
+            for lines in csvFile:
+                if (lines.__contains__(word)):
+                    lines_with_word.append(lines)
+            print(lines_with_word)
+            try:
+                return random.choice(lines_with_word) # Select a random word list that contains the word
+            except IndexError:
+                return None
 
 
 if __name__ == '__main__':
@@ -583,6 +721,8 @@ if __name__ == '__main__':
 
         heartbeatSender = HeartbeatSender()
         heartbeatSender.start()
+
+        game = Game(UUID, IP_ADDR)
 
         '''
         #TODO: Loop untill voting.lead_is_elected == True: Then start listening for heartbeats

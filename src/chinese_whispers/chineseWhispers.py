@@ -33,35 +33,25 @@ class ChineseWhispers:
         if line == None:
             return None
         index = line.index(word_understood)
-        # go up/down / stay
-        if index == 0:
-            if prop < PROB_FOR_ONE_WORD_DOWN:
-                return line[len(line) - 1]
-            elif prop >= PROB_FOR_ONE_WORD_DOWN and prop < PROB_FOR_SAME_WORD:
-                return line[0]
-            else:
-                return line[1]
-        elif index == len(line) - 1:
-            if prop < PROB_FOR_ONE_WORD_DOWN:
-                return line[index - 1]
-            elif prop >= PROB_FOR_ONE_WORD_DOWN and prop < PROB_FOR_SAME_WORD:
-                return line[index]
-            else:
-                return line[0]
-        else:
-            if prop < PROB_FOR_ONE_WORD_DOWN:
-                return line[index - 1]
-            elif prop >= PROB_FOR_ONE_WORD_DOWN and prop < PROB_FOR_SAME_WORD:
-                return line[index]
-            else:
-                return line[index + 1]
+        # go up/down/stay
+        if prop < PROB_FOR_ONE_WORD_DOWN: # go one word up in word list
+            return line[(index - 1) % len(line)] # use modulo to implement the list as ring
+        elif prop >= PROB_FOR_ONE_WORD_DOWN and prop < PROB_FOR_SAME_WORD: # stay at same position in word list
+            return line[index]
+        else: # go one word up in word list
+            return line[(index + 1) % len(line)] # use modulo to implement the list as ring
         # pass word to neighbour
         pass
 
     def findWordInWordList(self, word):
         with open('../../data/Rhymes.csv', mode ='r')as file:
             csvFile = csv.reader(file)
+            lines_with_word = [] # Some words appear in more than one word list. Need to capture all of them
             for lines in csvFile:
                 if (lines.__contains__(word)):
-                    return lines
-    
+                    lines_with_word.append(lines)
+            print(lines_with_word)
+            try:
+                return random.choice(lines_with_word) # Select a random word list that contains the word
+            except IndexError:
+                return None
