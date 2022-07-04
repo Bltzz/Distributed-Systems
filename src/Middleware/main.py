@@ -222,6 +222,10 @@ class MessageInterpreter():
                 game.changeState({"state": "WaitForStart"})
                 pass
 
+            if game.running:
+                print("Need to resend the whispered word to my new neighbor, if thats the case.")
+                game.lostPlayer(self.id)
+
             pass
         if(self.command == 'LOST_NEIGHBOR'):
             # Only the leader can receive this kind of message
@@ -527,8 +531,6 @@ class Voting():
 
 class Game():
     def __init__(self, uuid, ip):
-        self.running = True
-        self.check = True
         self.uuid = uuid
         self.my_ip = ip
         self.word_understood = None
@@ -538,8 +540,10 @@ class Game():
         self.PROB_FOR_ONE_WORD_UP = 1
         self.state = "WaitForStart"
         self.message = None
+        self.receivingIP = findRightNeighbor(self.my_ip)[0]
 
-    def startGame(self):        
+    def startGame(self):
+        self.running = True        
         while self.running: # Check the current game state
             if self.state == "WaitForStart": self.waitForStart()
             elif self.state == "InsertWord": self.insertWord()
@@ -563,6 +567,15 @@ class Game():
         while (len(peers) < 3):
             time.sleep(0.5)
             pass
+        
+        # Be safe that everyone is in the "WaitForStart" State. Important espeacially when leader hs crashed and a restart is necessary.
+        msgStateChange = {
+            "cmd": "GAME",
+            "uuid": str(self.uuid),
+            "msg": {"state": "WaitForStart", "ip": self.my_ip}
+        }
+
+        BSender.broadcast(BSender.bcip, BSender.bcport, msgStateChange)
 
         if leader:
             start = None
@@ -589,6 +602,8 @@ class Game():
         elif not leader:
             print("Wait until the leader starts the game ...")
             while self.state == "WaitForStart":
+                if leader: # Could be that the leader crashes and a waiting peer receives the leader role in the meantime
+                    return
                 time.sleep(1)
 
     def insertWord(self):
@@ -601,7 +616,7 @@ class Game():
             msgStateChange = {
                 "cmd": "GAME",
                 "uuid": str(self.uuid),
-                "msg": {"state": "InsertWord", "whisperedWords": [(self.my_ip, self.word_understood)]}
+                "msg": {"state": "InsertWord", "whisperedWords": [(self.my_ip, self.word_understood)], "resent": False}
             }
 
             self.state = "ProcessResult"
@@ -618,24 +633,48 @@ class Game():
             msgStateChange = {
                 "cmd": "GAME",
                 "uuid": str(self.uuid),
-                "msg": {"state": "InsertWord", "whisperedWords": self.whisperedWords}
+                "msg": {"state": "InsertWord", "whisperedWords": self.whisperedWords, "resent": False}
             }
 
             self.state = "WaitForResult"
+
+        self.receivingIP = findRightNeighbor(self.my_ip)[0]
         
-        print("Your neighbor", findRightNeighbor(self.my_ip)[0], "will be informed about your word.")
-        TCPUnicastSender(self.uuid, findRightNeighbor(self.my_ip)[0], msgStateChange)
+        print("Your neighbor", self.receivingIP, "will be informed about your word.")
+        TCPUnicastSender(self.uuid, self.receivingIP, msgStateChange)
+
 
     def waitForWord(self):
         print("Waiting for your neighbor to whisper a word ...")
         while self.state == "WaitForWord":
+            if leader: #Could be that a waiting peer becomes leader after old leader crashes. Then he needs to restart the game.
+                self.state = "WaitForStart"
+                return
             time.sleep(1)
             
 
     def waitForResult(self):
+        global leaderIpAndUUID
         print("Great job! Now wait for the leader to announce the result.")
 
-        while self.state == "WaitForResult":
+        while self.state != "WaitForStart":
+
+            if leader: # The leader crashed and this peer is the new leader. He needs to switch to the result processing state
+                self.state = "ProcessResult"
+                return
+
+            if self.state == "InsertWord": # Happens when either leader crashed or the left neighbor crashed
+                if not self.message['resent']: # If leader crashed, the game is not finished through the normal ring. A normal peer needs to detect if the whole ring participated in game and inform new leader!
+                    
+                    # Forward the last message to the leader that he can terminate the game
+                    msgStateChange = {
+                        "cmd": "GAME",
+                        "uuid": str(self.uuid),
+                        "msg": self.message
+                    }
+
+                    TCPUnicastSender(self.uuid, leaderIpAndUUID[0], msgStateChange)  
+        
             time.sleep(1)
 
         print('The game is over!')
@@ -667,7 +706,18 @@ class Game():
 
         self.waitForResult()           
 
-        BSender.broadcast(BSender.bcip, BSender.bcport, msgStateChange)    
+        BSender.broadcast(BSender.bcip, BSender.bcport, msgStateChange)
+
+    def lostPlayer(self, crashedIP): # Resend your word if you already sent a word and your right neighbour crashed. If he already forwarded his word, your new neighbor shouldn't be confused (idempotent operation)
+        if self.state == "WaitForResult" and crashedIP == self.receivingIP:
+
+            msgStateChange = {
+                "cmd": "GAME",
+                "uuid": str(self.uuid),
+                "msg": {"state": "InsertWord", "whisperedWords": self.whisperedWords, "resent": True}
+            }
+
+            TCPUnicastSender(self.uuid, findRightNeighbor(self.my_ip)[0], msgStateChange)    
     
     def tellWordToNeighbour(self, word_understood):
         prop = random.random()
