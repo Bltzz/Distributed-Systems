@@ -217,7 +217,7 @@ class MessageInterpreter():
                 print("I faild to remove the lost peer from my list. I probably did already before!")
                 pass
 
-            if game.running and len(peers) < 2:
+            if game.running and len(peers) < 3:
                 print("Too less peers: STOP GAME!!!")
                 game.changeState({"state": "WaitForStart"})
                 pass
@@ -563,7 +563,7 @@ class Game():
         global leader
         
         # Solange es keine 3 Player gibt geht es nicht weiter
-        while (len(peers) < 2):
+        while (len(peers) < 3):
             time.sleep(0.5)
             pass
         
@@ -694,7 +694,7 @@ class Game():
                 print("Oh no! The team has lost. But you have the chance to try again now.")
         except KeyError:
             print("The Game started a new round.")
-            if len(peers) < 2:
+            if len(peers) < 3:
                 self.state = "WaitForStart"
             return
 
@@ -799,7 +799,7 @@ if __name__ == '__main__':
         # Voting bevor Gamestart vom Leader (Voting sollte nur von einem Peer gestartet werden)
         # Im voting muss dann das sortieren der uuid passieren
 
-        while len(peers) < 2:
+        while len(peers) < 3:
             time.sleep(1)
 
         time.sleep(3)
