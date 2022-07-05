@@ -217,12 +217,12 @@ class MessageInterpreter():
                 print("I faild to remove the lost peer from my list. I probably did already before!")
                 pass
 
-            if leader and len(peers) < 3:
+            if game.running and len(peers) < 3:
                 print("Too less peers: STOP GAME!!!")
                 game.changeState({"state": "WaitForStart"})
                 pass
 
-            if game.running:
+            if game.running and game.state != "WaitForStart":
                 print("Need to resend the whispered word to my new neighbor, if thats the case.")
                 game.lostPlayer(self.id)
 
@@ -540,10 +540,11 @@ class Game():
         self.PROB_FOR_ONE_WORD_UP = 1
         self.state = "WaitForStart"
         self.message = None
-        self.receivingIP = findRightNeighbor(self.my_ip)[0]
+        
 
     def startGame(self):
-        self.running = True        
+        self.running = True
+              
         while self.running: # Check the current game state
             if self.state == "WaitForStart": self.waitForStart()
             elif self.state == "InsertWord": self.insertWord()
@@ -567,17 +568,20 @@ class Game():
         while (len(peers) < 3):
             time.sleep(0.5)
             pass
-        
-        # Be safe that everyone is in the "WaitForStart" State. Important espeacially when leader hs crashed and a restart is necessary.
-        msgStateChange = {
-            "cmd": "GAME",
-            "uuid": str(self.uuid),
-            "msg": {"state": "WaitForStart", "ip": self.my_ip}
-        }
 
-        BSender.broadcast(BSender.bcip, BSender.bcport, msgStateChange)
+        self.receivingIP = findRightNeighbor(self.my_ip)[0]
 
-        if leader:
+        if leader:        
+
+            # Be safe that everyone is in the "WaitForStart" State. Important espeacially when leader has crashed and a restart is necessary.
+            msgStateChange = {
+                "cmd": "GAME",
+                "uuid": str(self.uuid),
+                "msg": {"state": "WaitForStart", "ip": self.my_ip}
+            }
+
+            BSender.broadcast(BSender.bcip, BSender.bcport, msgStateChange)
+
             start = None
             while not start:
                 start = input("If you want to start the game write 'startGame' (without spacing): ")
