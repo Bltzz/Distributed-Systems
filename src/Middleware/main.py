@@ -169,7 +169,7 @@ class MessageInterpreter():
             if(self.content  == self.my_ip_addr ):
 
                 # Wenn Broadcast Nachricht zurück zum Broadcast Sender geht wird keine TCP verschickt
-                time.sleep(1)
+                time.sleep(2)
 
                 # Der neue joiner startet ein Voting
                 vote = Voting()
@@ -545,6 +545,7 @@ class Game():
     def changeState(self, msg):
         self.message = msg
         self.state = self.message['state']
+        if debug: print("Changed state to " + self.state)
         pass
 
     def waitForStart(self):
@@ -615,6 +616,8 @@ class Game():
             while not self.word_understood:
                 self.word_understood = input("📣 You are the leader. Please choose a word from the csv file and write it down: ").lower()
 
+            if self.state != "InsertWord": return
+
             msgStateChange = {
                 "cmd": "GAME",
                 "uuid": str(self.uuid),
@@ -628,8 +631,10 @@ class Game():
             if debug: print(self.word_understood)
             self.word_understood = None
             while not self.word_understood:
-                self.word_understood = input(f'PSSSSST 🤫 {self.whisperedWords[-1][0]} whispered the word "{self.whisperedWords[-1][1]}". Please forward it quietly: ').lower()
-            self.word_understood = self.tellWordToNeighbour(self.word_understood)
+                self.word_understood = input(f'PSSSSST 🤫 {self.whisperedWords[-1][0]} whispered the word "{self.tellWordToNeighbour(self.whisperedWords[-1][1])}". Please forward it quietly: ').lower()
+            
+            if self.state != "InsertWord": return
+            
             self.whisperedWords.append((self.my_ip, self.word_understood))
 
             
@@ -699,10 +704,10 @@ class Game():
         print("-"*30)
         print("Now you have to wait until all players finished. Then you can reveal the result.")
         while self.state == "ProcessResult":
-            if self.state == "WaitForStart":
-                return
             time.sleep(1)
 
+        if self.state == "WaitForStart":
+            return
         if debug: print(self.message)
 
         msgStateChange = {
