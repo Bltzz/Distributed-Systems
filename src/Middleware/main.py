@@ -11,13 +11,22 @@ import csv
 
 from CommonUtil import encodeMessage, decodeMessage, getBroadcastIP, IP_ADDR
 
-
+debug = False
 
 #Global var if this Peer is the leader - set to True after Voting
 global leader
 leader = False
 global leaderIpAndUUID
 leaderIpAndUUID = (None, None)
+
+print("-"*30)
+players = 0
+while players < 3:
+    players = input("👥 How many players should join the game? (Min. 3) ")
+    try:
+        players = int(players)
+    except ValueError:
+        players = 0
 
 #List of Peers Tupel(ip, uuid)
 peers = []
@@ -26,9 +35,8 @@ UUID = uuid.uuid4()
 
 def sortList():
     sortedList = sorted(peers, key=lambda peers: peers[0])
-    #print("Sorted List: ", sortedList)
-    #("192.168.172.xxx", str(UUID))
     return sortedList
+
 # needed for heartbeat and voting
 def findRightNeighbor(ip_address):
     sortedList = sortList()
@@ -49,7 +57,6 @@ class BroadcastListener(Thread):
         self.my_host = socket.gethostname()
         self.my_ip = IP_ADDR # from CommonUtil # socket.gethostbyname(self.my_host)
         self.UUID = UUID
-        #print("My IP: "+self.my_ip)
 
         # Create a UDP socket
         self.listen_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -60,7 +67,6 @@ class BroadcastListener(Thread):
             socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # Bind socket to address and port
         self.listen_socket.bind(('', self.bcport))
-        #print("Listening to broadcast messages")
         self.running = True
 
     def run(self):
@@ -70,7 +76,7 @@ class BroadcastListener(Thread):
                 #print("Received broadcast message:", decodeMessage(data))
                 newUDPThread = UDPBroadcastHandler(data)
                 newUDPThread.start()
-                print("Broadcast received: ", decodeMessage(data))
+                if debug: print("Broadcast received: ", decodeMessage(data))
 
     def stop(self):
         self.running = False
@@ -96,7 +102,6 @@ class SendMessage():
             "uuid": str(UUID),
             "msg": message
         }
-        #print(self.msg)
 
         self.broadcast(self.bcip, self.bcport, self.msg)
 
@@ -121,7 +126,6 @@ class BroadcastSender():
             "uuid": str(UUID),
             "msg": my_ip
         }
-        #print(self.msg)
 
         self.broadcast(self.bcip, self.bcport, self.msg)
 
@@ -141,22 +145,20 @@ class TCPUnicastSender():
 
     def __init__(self, UUID, recipientIP, msg):
         self.uport = 59072
-        #self.UUID = UUID
         self.recipientIP = recipientIP
         self.hostname = socket.gethostname()
         self.ip_address = IP_ADDR
         self.msg = msg
-        print("SEND TCP Message: ", self.msg, self.recipientIP)
+        if debug: print("SEND TCP Message: ", self.msg, self.recipientIP)
         self.sendMessage(self.recipientIP, self.uport, self.msg)
 
     def sendMessage(self, recipientIP, uport, message):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        #print(recipientIP, uport)
         s.connect_ex((recipientIP, uport))
         s.sendall(encodeMessage(message))
         data = s.recv(1024)
         s.close()
-        print('TCP Received: ', repr(data))
+        if debug: print('TCP Received: ', repr(data))
 
 class MessageInterpreter():
     def __init__(self, data):
@@ -166,7 +168,6 @@ class MessageInterpreter():
         self.id = self.msg['uuid']
         self.my_ip_addr = IP_ADDR
         self.my_id = UUID
-        #self.conn = conn
         global leaderIpAndUUID
         global peers
         global leader
@@ -177,7 +178,6 @@ class MessageInterpreter():
             if(self.content  == self.my_ip_addr ):
 
                 # Wenn Broadcast Nachricht zurück zum Broadcast Sender geht wird keine TCP verschickt
-                #print("Es wird keine TCP Nachricht verschickt")
                 time.sleep(2)
 
                 # Der neue joiner startet ein Voting
@@ -186,14 +186,13 @@ class MessageInterpreter():
 
             else:
                 peers.append((self.content, self.id))
-                #print(self.my_id)
                 res = {
                     "cmd": "INIT_RESPONSE",
                     "uuid": str(self.my_id),
                     "msg": self.my_ip_addr
                 }
                 TCPUnicastSender(self.my_id, self.content, res)
-            print("Peers: ", peers)
+            if debug: print("Peers: ", peers)
         if(self.command == 'INIT_RESPONSE'):
             self.addPeerToList(self.content, self.id)
             #conn.close()
@@ -208,17 +207,16 @@ class MessageInterpreter():
         if(self.command == 'HEARTBEAT'):
             pass
         if(self.command == 'LOST_PEER'):
-            print("My leader says we lost a peer!")
+            if debug: print("The leader informed that one peer is lost")
             try:
                 peers.remove((self.content, self.id))
-                print("Removed the lost peer from my list")
-            except ValueError:
-                # Peer was already removed -> do nothing
-                print("I faild to remove the lost peer from my list. I probably did already before!")
+                if debug: print("Removed the lost peer from the list")
+            except ValueError: # Peer was already removed -> do nothing
+                if debug: print("Faild to remove the lost peer from the list. Probably happend already before!")
                 pass
 
             if game.running and len(peers) < 3:
-                print("Too less peers: STOP GAME!!!")
+                if debug: print("Too less peers: STOP GAME!!!")
                 game.changeState({"state": "WaitForStart"})
                 pass
             
@@ -228,7 +226,7 @@ class MessageInterpreter():
             pass
         if(self.command == 'LOST_NEIGHBOR'):
             # Only the leader can receive this kind of message
-            print("One of my peers informed me that he lost his neighbor. Lets broadcast it to the whole ring.")
+            if debug: print("One of the peers informed that it lost a neighbor -> broadcast this information to the ring")
             msgLostPeer = {
                 "cmd": "LOST_PEER",
                 "uuid": self.id,
@@ -238,18 +236,16 @@ class MessageInterpreter():
             BSender.broadcast(BSender.bcip, BSender.bcport, msgLostPeer)
         
         if(self.command == 'GAME'):
-            print("Received this state changing message:", self.content)
+            if debug: print("Received this state changing message:", self.content)
             game.changeState(self.content)
 
 
     def removePeerFromList(self, ip_addr, id):
         peers.remove((ip_addr, id))
-        #print(peers)
-            
-
+        
     def addPeerToList(self, ip_addr, id):
         peers.append((ip_addr, id))
-        #print("Peers: ", peers)
+        if debug: print("Peers: ", peers)
 
 class TCPUnicastListener(Thread):
     def __init__(self, listeningPort, UUID):
@@ -263,13 +259,12 @@ class TCPUnicastListener(Thread):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(('', self.listeningPort))
-        print('TCP Unicast at server %s listening on port %s' % (self.ip_addr, self.listeningPort))
+        if debug: print('TCP Unicast at server %s listening on port %s' % (self.ip_addr, self.listeningPort))
 
         while True:
-            ##print("True")
             s.listen(1)
             conn, addr = s.accept()
-            #print("New connection added: ", addr)
+            if debug: print("New connection added: ", addr)
             newthread = TCPUnicastHandler(conn, addr, self.UUID, self.ip_addr)
             newthread.start()
 
@@ -282,18 +277,18 @@ class TCPUnicastHandler(Thread):
         self.UUID = UUID
         self.ip_addr = ip_addr
 
-        print("New connection added: ", self.addr)
+        if debug: print("New connection added: ", self.addr)
 
     
     def run(self):
-        print("Connection from: ", self.addr)
+        if debug: print("Connection from: ", self.addr)
 
         while True:
             data = self.conn.recv(1024)
             if not data:
                 break
             #msg = decodeMessage(data)
-            print("Unicast Message received: ", data.decode())
+            if debug: print("Unicast Message received: ", data.decode())
             
             msg = {
                 "cmd": "SUCCESS",
@@ -303,7 +298,7 @@ class TCPUnicastHandler(Thread):
             self.conn.sendall(encodeMessage(msg))
             MessageInterpreter(data)
             #conn.sendall(str.encode("Thanks"))
-        print("Peer at ", self.addr ," disconnected...")
+        if debug: print("Peer at ", self.addr ," disconnected...")
 
 class HeartbeatListener(Thread):
     def __init__(self, heartbeat_port, UUID):
@@ -315,7 +310,7 @@ class HeartbeatListener(Thread):
 
         #print("Heartbeat starting...")
 
-        print("Heartbeat at ", self.ip_addr ," listening on port ", self.heartbeat_port)
+        if debug: print("Heartbeat at ", self.ip_addr ," listening on port ", self.heartbeat_port)
         self.running = True
         
     def run(self):
@@ -386,33 +381,33 @@ class HeartbeatSender(Thread):
             if not data:
                 if direction == "right": 
                     self.counterRight += 1
-                    print("Right neighbor counter 'no data' +1")
+                    if debug: print("Right neighbor counter 'no data' +1")
                 elif direction == "left":
                     self.counterLeft += 1
-                    print("Left neighbor counter 'no data' +1")
+                    if debug: print("Left neighbor counter 'no data' +1")
                 return
             #print('TCP Received from', direction,'neighbor: ', repr(data))
         except socket.error or Exception:
             if direction == "right": 
                 self.counterRight += 1
                 self.failureRight = True
-                print("Right neighbor counter 'socket error' +1")
+                if debug: print("Right neighbor counter 'socket error' +1")
             elif direction == "left":
                 self.counterLeft += 1
                 self.failureLeft = True
-                print("Left neighbor counter 'socket error' +1")
+                if debug: print("Left neighbor counter 'socket error' +1")
         finally:
             s.close
 
         if self.counterLeft > 3 :
-            print("Left neighbor lost: ", neighbor)
+            if debug: print("Left neighbor lost: ", neighbor)
             #peers.remove(neighbor)
             #self.leftNeighbor = findLeftNeighbor(self.ip_address)
             self.sendLostPeerMessage(neighbor)
             self.counterLeft = 0
             pass
         if self.counterRight > 3 :
-            print("Right neighbor lost: ", neighbor)
+            if debug: print("Right neighbor lost: ", neighbor)
             #peers.remove(neighbor)
             #self.rightNeighbor = findRightNeighbor(self.ip_address)
             self.sendLostPeerMessage(neighbor) #Broadcast an den leader?
@@ -427,7 +422,7 @@ class HeartbeatSender(Thread):
         if neighbor[0] == leaderIpAndUUID[0]:
             # Leader got lost. --> Detecting peer takes temporary leader role, broadcasts the lost leader and starts new leader voting
 
-            print("OH NOOO! We lost our Leader :O I will do it temporarly!")
+            if debug: print("The leader is lsot. This peer will be the temprary leader.")
             
             leader = True
 
@@ -446,7 +441,7 @@ class HeartbeatSender(Thread):
 
         else:
             # The detecting peer informs the leader about the lost peer
-            print("I need to inform our leader that I lost my neighbor :(")
+            if debug: print("Inform the leader that one neighbor iszt lost")
             msgLostNeighbor = {
                         "cmd": "LOST_NEIGHBOR",
                         "uuid": neighbor[1],
@@ -485,7 +480,7 @@ class Voting():
     def respondWithLCRAlgorithmToVote(self, msg):
         global leader
         global leaderIpAndUUID
-        print("Incoming Voting: ", msg)
+        if debug: print("Incoming Voting: ", msg)
         receivedUUID = msg["uuid"]
         receivedIP = msg["msg"]
         isLeaderElected = msg["leaderElected"]
@@ -495,8 +490,7 @@ class Voting():
                 leader = False
                 # TODO: where to put leader ip?
                 
-                print(leaderIpAndUUID)
-                print("My election forward response: ", msg)
+                if debug: print("My election forward response: ", msg)
                 TCPUnicastSender(self.UUID, self.leftNeighbor[0], msg)
             leaderIpAndUUID = (msg["msg"],msg["uuid"])
         else:
@@ -508,7 +502,7 @@ class Voting():
                     "msg": self.ip_address,
                     "leaderElected" : True
                 }
-                print("I am Leader: ", msg)
+                if debug: print("I am Leader: ", msg)
                 TCPUnicastSender(self.UUID, self.leftNeighbor[0], response)
             elif self.isOwnUuidIsHigher(self.UUID, receivedUUID):
                 # probably ignore this elif
@@ -518,10 +512,10 @@ class Voting():
                     "msg": self.ip_address,
                     "leaderElected" : False
                 }
-                print("Replacing incoming uuid and ip with my stats, because I am higher", msg)
+                if debug: print("Replacing incoming uuid and ip with my stats, because I am higher", msg)
                 TCPUnicastSender(self.UUID, self.leftNeighbor[0], response)
             else:
-                print("Forward incoming Voting", msg)
+                if debug: print("Forward incoming Voting", msg)
                 TCPUnicastSender(self.UUID, self.leftNeighbor[0], msg)
         pass
 
@@ -553,26 +547,28 @@ class Game():
     def changeState(self, msg):
         self.message = msg
         self.state = self.message['state']
-        print("My current Game message is", self.message)
-        print("Changed state to", self.message['state'])
         pass
 
     def waitForStart(self):
-        print("I entered waitForStart")
+        print("-"*30)
+        if debug: print("I entered waitForStart")
         global BSender
         global leader
+        global peers
         
-        # Solange es keine 3 Player gibt geht es nicht weiter
-        while (len(peers) < 3):
+        # Solange nicht alle Player da sind, geht es nicht weiter
+        while (len(peers) < players):
             time.sleep(0.5)
+            print(f'🔴 Identified {len(peers)}/{players} players: {", ".join([peer[0] for peer in peers])}', end="\r")
             pass
-        
+
+        print(f'✅ Identified {len(peers)}/{players} players: {", ".join([peer[0] for peer in peers])}')
         # The neighbor who will receive your input
         self.receivingIP = findRightNeighbor(self.my_ip)[0]
 
         if leader:
 
-            time.sleep(1)
+            time.sleep(5)
 
             # Be safe that everyone is in the "WaitForStart" State. Important espeacially when leader has crashed and a restart is necessary.
             msgStateChange = {
@@ -614,14 +610,13 @@ class Game():
                 time.sleep(1)
 
     def insertWord(self):
-        print("I entered insertWord")
+        print("-"*30)
         global leader
-        print(leader)
         
         if leader:
             self.word_understood = None
             while not self.word_understood:
-                self.word_understood = input("You are the leader. Please choose a word from the csv file and write it down: ").lower()
+                self.word_understood = input("📣 You are the leader. Please choose a word from the csv file and write it down: ").lower()
 
             msgStateChange = {
                 "cmd": "GAME",
@@ -633,7 +628,7 @@ class Game():
 
         elif not leader:
             self.whisperedWords = self.message["whisperedWords"]
-            print(self.word_understood)
+            if debug: print(self.word_understood)
             self.word_understood = None
             while not self.word_understood:
                 self.word_understood = input(f'PSSSSST 🤫 {self.whisperedWords[-1][0]} whispered the word "{self.whisperedWords[-1][1]}". Please forward it quietly: ').lower()
@@ -650,11 +645,11 @@ class Game():
 
             self.state = "WaitForResult"
         
-        print("Your neighbor", findRightNeighbor(self.my_ip)[0], "will be informed about your word.")
+        print("✅ Your neighbor", findRightNeighbor(self.my_ip)[0], "will be informed about your word.")
         TCPUnicastSender(self.uuid, findRightNeighbor(self.my_ip)[0], msgStateChange)
 
     def waitForWord(self):
-        print("I entered waitForWord")
+        print("-"*30)
         print("Waiting for your neighbor to whisper a word ...")
         while self.state == "WaitForWord":
 
@@ -668,8 +663,8 @@ class Game():
             
 
     def waitForResult(self):
-        print("I entered waitForResult")
-        print("Great job! Now wait for the leader to announce the result.")
+        print("-"*30)
+        if not leader: print("Great job! Now wait for the leader to announce the result.")
         global peers
 
         while self.state == "WaitForResult":
@@ -678,7 +673,7 @@ class Game():
                 self.state == "WaitForResult"
 
             if leader: # The leader crashed and this peer is the new leader. It needs to switch to the result processing state
-                print("The leader crashed. Now you have to take his role.")
+                print("The leader crashed. Now you have to take its role.")
                 self.state = "ProcessResult"
                 return
             
@@ -689,9 +684,9 @@ class Game():
             print(f'The real word was "{self.message["result"][0][1]}".')
 
             if self.message["result"][-1][1] == self.message["result"][0][1]:
-                print("Congratulations! The team has won.")
+                print("🏆 Congratulations! The team has won.")
             else:
-                print("Oh no! The team has lost. But you have the chance to try again now.")
+                print("❌ Oh no! The team has lost. But you have the chance to try again now.")
         except KeyError:
             print("The Game started a new round.")
             if len(peers) < 3:
@@ -701,12 +696,12 @@ class Game():
         self.state = "WaitForStart"
 
     def processResult(self): # Only the leader should be able to come into this state
-        print("I entered processResult")
+        print("-"*30)
         print("Now you have to wait until all players finished. Then you can reveal the result.")
         while self.state == "ProcessResult":
             time.sleep(1)
 
-        print(self.message)
+        if debug: print(self.message)
 
         msgStateChange = {
             "cmd": "GAME",
@@ -723,7 +718,7 @@ class Game():
     def lostPlayer(self, crashedIP):
         if self.state == "WaitForResult" or self.state == "ProcessResult":
             if crashedIP == self.receivingIP:
-                print("This peer needs to resend its whispered word, as the crashed neighbor could be the ex neighbor")
+
                 msgStateChange = {
                     "cmd": "GAME",
                     "uuid": str(self.uuid),
@@ -780,9 +775,9 @@ if __name__ == '__main__':
     try:
         game = Game(UUID, IP_ADDR)
         peers.append((IP_ADDR, str(UUID)))
-        print(peers)
-        # Broadcast Listener
-        print("Start TCP Unicast Listener")
+        #print(peers)
+
+        #print("Start TCP Unicast Listener")
         listener = TCPUnicastListener(59072, UUID) #TCP UnicastListener
         listener.start()
 
@@ -792,28 +787,9 @@ if __name__ == '__main__':
         heartbeat = HeartbeatListener(59071, UUID)
         heartbeat.start()
 
-        time.sleep(5)
-        # Broadcast Sender
+        time.sleep(0.5)
+
         BSender = BroadcastSender()
-
-        # Voting bevor Gamestart vom Leader (Voting sollte nur von einem Peer gestartet werden)
-        # Im voting muss dann das sortieren der uuid passieren
-
-        while len(peers) < 3:
-            time.sleep(1)
-
-        time.sleep(3)
-        initialinput = None
-        while not initialinput:
-            initialinput = input("Write 'start' to start the game: ")
-
-        if leader:
-            print("I AM THE LEADER!!!!!!!!!!!!!!")
-        else:
-            print("I am only another Peer in the ring!")
-
-        #vote = Voting()
-        #vote.startVote()
 
         time.sleep(3)
 
@@ -823,32 +799,5 @@ if __name__ == '__main__':
 
         game.startGame()
 
-        '''
-        #TODO: Loop untill voting.lead_is_elected == True: Then start listening for heartbeats
-        while vote.isLeaderElected == True:
-            time.sleep(2)
-            heartbeatSenderLeft = HeartbeatSender(UUID, vote.leftNeighbor)
-            heartbeatSenderRight = HeartbeatSender(UUID, vote.rightNeighbor)
-
-
-        
-        
-        # neuer Thread!
-        time.sleep(2)
-        while True: 
-            time.sleep(3)
-            heartbeatSender = HeartbeatSender(UUID, vote.leftNeighbor)
-            heartbeatSender = HeartbeatSender(UUID, vote.rightNeighbor)
-            # wenn ausfällt, dann neues Voting
-        # Thread Ende
-        # Soll nur beim Leader starten
-        if leader == True:
-            game = Game()
-            game.checkPlayer()
-        '''
-
-        # Heartbeat (TCP Unicast)
-        #heartbeat = HeartbeatListener(59071, UUID)
-        #heartbeat.start()
     except KeyboardInterrupt:
         sys.exit(0)
