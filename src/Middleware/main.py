@@ -206,7 +206,7 @@ class MessageInterpreter():
                 if debug: print("Faild to remove the lost peer from the list. Probably happend already before!")
                 pass
 
-            if game.running and len(peers) < 3:
+            if game.running and len(peers) < players:
                 if debug: print("Too less peers: STOP GAME!!!")
                 game.changeState({"state": "WaitForStart"})
                 pass
@@ -554,7 +554,7 @@ class Game():
         global peers
         
         # If a peer did meanwhile, wee neeed toc heck if we still have the min number of players
-        while (len(peers) < 3):
+        while (len(peers) < players):
             time.sleep(0.5)
             print(f'🔴 Identified {len(peers)}/3 players: {", ".join([peer[0] for peer in peers])}', end="\r")
             pass
@@ -689,7 +689,7 @@ class Game():
         except KeyError:
             print("The Game started a new round.")
             print("-"*30)
-            if len(peers) < 3:
+            if len(peers) < players:
                 self.state = "WaitForStart"
             return
 
@@ -699,6 +699,8 @@ class Game():
         print("-"*30)
         print("Now you have to wait until all players finished. Then you can reveal the result.")
         while self.state == "ProcessResult":
+            if self.state == "WaitForStart":
+                return
             time.sleep(1)
 
         if debug: print(self.message)
