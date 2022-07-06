@@ -19,15 +19,6 @@ leader = False
 global leaderIpAndUUID
 leaderIpAndUUID = (None, None)
 
-print("-"*30)
-players = 0
-while players < 3:
-    players = input("👥 How many players should join the game? (Min. 3) ")
-    try:
-        players = int(players)
-    except ValueError:
-        players = 0
-
 #List of Peers Tupel(ip, uuid)
 peers = []
 
@@ -178,7 +169,7 @@ class MessageInterpreter():
             if(self.content  == self.my_ip_addr ):
 
                 # Wenn Broadcast Nachricht zurück zum Broadcast Sender geht wird keine TCP verschickt
-                time.sleep(2)
+                time.sleep(1)
 
                 # Der neue joiner startet ein Voting
                 vote = Voting()
@@ -363,9 +354,9 @@ class HeartbeatSender(Thread):
     def run(self):
         while self.running:
             self.sendMessage(findRightNeighbor(self.ip_address), self.uport, self.msg, "right") #Need to search neighbor each time again in case the peers list changed
-            time.sleep(1)
+            time.sleep(0.5)
             self.sendMessage(findLeftNeighbor(self.ip_address), self.uport, self.msg, "left") #Need to search neighbor each time again in case the peers list changed
-            time.sleep(1)
+            time.sleep(0.5)
         pass
        
 
@@ -377,7 +368,7 @@ class HeartbeatSender(Thread):
             s.connect_ex((neighbor[0], uport))
             s.sendall(encodeMessage(message))
             data = s.recv(1024)
-            time.sleep(1)
+            #time.sleep(1)
             if not data:
                 if direction == "right": 
                     self.counterRight += 1
@@ -536,7 +527,14 @@ class Game():
         self.state = "WaitForStart"
         self.message = None
 
-    def startGame(self):        
+    def startGame(self):
+        print("-"*30)
+        # Solange nicht alle Player da sind, geht es nicht weiter
+        while (len(peers) < players):
+            time.sleep(0.5)
+            print(f'🔴 Identified {len(peers)}/{players} players: {", ".join([peer[0] for peer in peers])}', end="\r")
+            pass
+
         while self.running: # Check the current game state
             if self.state == "WaitForStart": self.waitForStart()
             elif self.state == "InsertWord": self.insertWord()
@@ -550,25 +548,24 @@ class Game():
         pass
 
     def waitForStart(self):
-        print("-"*30)
         if debug: print("I entered waitForStart")
         global BSender
         global leader
         global peers
         
-        # Solange nicht alle Player da sind, geht es nicht weiter
-        while (len(peers) < players):
+        # If a peer did meanwhile, wee neeed toc heck if we still have the min number of players
+        while (len(peers) < 3):
             time.sleep(0.5)
-            print(f'🔴 Identified {len(peers)}/{players} players: {", ".join([peer[0] for peer in peers])}', end="\r")
+            print(f'🔴 Identified {len(peers)}/3 players: {", ".join([peer[0] for peer in peers])}', end="\r")
             pass
 
-        print(f'✅ Identified {len(peers)}/{players} players: {", ".join([peer[0] for peer in peers])}')
+        print(f'✅ Identified {len(peers)}/{len(peers)} players: {", ".join([peer[0] for peer in peers])}')
         # The neighbor who will receive your input
         self.receivingIP = findRightNeighbor(self.my_ip)[0]
 
         if leader:
 
-            time.sleep(5)
+            time.sleep(3)
 
             # Be safe that everyone is in the "WaitForStart" State. Important espeacially when leader has crashed and a restart is necessary.
             msgStateChange = {
@@ -685,10 +682,13 @@ class Game():
 
             if self.message["result"][-1][1] == self.message["result"][0][1]:
                 print("🏆 Congratulations! The team has won.")
+                print("-"*30)
             else:
                 print("❌ Oh no! The team has lost. But you have the chance to try again now.")
+                print("-"*30)
         except KeyError:
             print("The Game started a new round.")
+            print("-"*30)
             if len(peers) < 3:
                 self.state = "WaitForStart"
             return
@@ -773,11 +773,21 @@ class Game():
 
 if __name__ == '__main__':
     try:
+
+        print("-"*30)
+        players = 0
+        while players < 3:
+            players = input("👥 How many players should join the game? (Min. 3) ")
+            try:
+                players = int(players)
+            except ValueError:
+                players = 0
+
         game = Game(UUID, IP_ADDR)
         peers.append((IP_ADDR, str(UUID)))
-        #print(peers)
+        if debug: print(peers)
 
-        #print("Start TCP Unicast Listener")
+        if debug: print("Start TCP Unicast Listener")
         listener = TCPUnicastListener(59072, UUID) #TCP UnicastListener
         listener.start()
 
@@ -791,11 +801,10 @@ if __name__ == '__main__':
 
         BSender = BroadcastSender()
 
-        time.sleep(3)
+        time.sleep(2)
 
         heartbeatSender = HeartbeatSender()
         heartbeatSender.start()
-
 
         game.startGame()
 
