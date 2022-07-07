@@ -11,7 +11,7 @@ import csv
 
 from CommonUtil import encodeMessage, decodeMessage, getBroadcastIP, IP_ADDR
 
-debug = False
+debug = True
 
 #Global var if this Peer is the leader - set to True after Voting
 global leader
@@ -140,7 +140,7 @@ class TCPUnicastSender():
         self.hostname = socket.gethostname()
         self.ip_address = IP_ADDR
         self.msg = msg
-        if debug: print("SEND TCP Message: ", self.msg, self.recipientIP)
+        #if debug: print("SEND TCP Message: ", self.msg, self.recipientIP)
         self.sendMessage(self.recipientIP, self.uport, self.msg)
 
     def sendMessage(self, recipientIP, uport, message):
@@ -169,7 +169,7 @@ class MessageInterpreter():
             if(self.content  == self.my_ip_addr ):
 
                 # Wenn Broadcast Nachricht zurück zum Broadcast Sender geht wird keine TCP verschickt
-                time.sleep(2)
+                time.sleep(0.5)
 
                 # Der neue joiner startet ein Voting
                 vote = Voting()
@@ -208,7 +208,7 @@ class MessageInterpreter():
 
             if game.running and len(peers) < players:
                 if debug: print("Too less peers: STOP GAME!!!")
-                game.changeState({"state": "WaitForStart"})
+                game.changeState({"state": "ResetWaitForStart"})
                 pass
             
             if game.running: # Maybe the peer need to resend its whispered word
@@ -229,6 +229,7 @@ class MessageInterpreter():
         if(self.command == 'GAME'):
             if debug: print("Received this state changing message:", self.content)
             game.changeState(self.content)
+            pass
 
 
     def removePeerFromList(self, ip_addr, id):
@@ -413,7 +414,7 @@ class HeartbeatSender(Thread):
         if neighbor[0] == leaderIpAndUUID[0]:
             # Leader got lost. --> Detecting peer takes temporary leader role, broadcasts the lost leader and starts new leader voting
 
-            if debug: print("The leader is lsot. This peer will be the temprary leader.")
+            if debug: print("The leader is lost. This peer will be the temprary leader.")
             
             leader = True
 
@@ -432,7 +433,7 @@ class HeartbeatSender(Thread):
 
         else:
             # The detecting peer informs the leader about the lost peer
-            if debug: print("Inform the leader that one neighbor iszt lost")
+            if debug: print("Inform the leader that one neighbor is lost")
             msgLostNeighbor = {
                         "cmd": "LOST_NEIGHBOR",
                         "uuid": neighbor[1],
@@ -541,8 +542,12 @@ class Game():
             elif self.state == "WaitForWord": self.waitForWord()
             elif self.state == "WaitForResult": self.waitForResult()
             elif self.state == "ProcessResult": self.processResult()
+            elif self.state == "ResetWaitForStart": self.state = "WaitForStart"
+            else: pass
+            time.sleep(.1)
 
     def changeState(self, msg):
+        if debug and self.state is not None: print("Changed state from " + self.state)
         self.message = msg
         self.state = self.message['state']
         if debug: print("Changed state to " + self.state)
@@ -557,7 +562,7 @@ class Game():
         # If a peer did meanwhile, wee neeed toc heck if we still have the min number of players
         while (len(peers) < players):
             time.sleep(0.5)
-            print(f'🔴 Identified {len(peers)}/3 players: {", ".join([peer[0] for peer in peers])}', end="\r")
+            print(f'🔴 Identified {len(peers)}/{players} players: {", ".join([peer[0] for peer in peers])}', end="\r")
             pass
 
         print(f'✅ Identified {len(peers)}/{len(peers)} players: {", ".join([peer[0] for peer in peers])}')
@@ -580,7 +585,7 @@ class Game():
             time.sleep(1)
 
             start = None
-            while not start:
+            while not start and self.state == "WaitForStart":
                 start = input("If you want to start the game write 'startGame' (without spacing): ")
 
             if (start.lower() == "startgame"):
@@ -613,11 +618,16 @@ class Game():
         
         if leader:
             self.word_understood = None
-            while not self.word_understood:
+            while leader and not self.word_understood:
                 self.word_understood = input("📣 You are the leader. Please choose a word from the csv file and write it down: ").lower()
-
+            if not leader:
+                CURSOR_UP_ONE = '\x1b[1A' 
+                ERASE_LINE = '\x1b[2K' 
+                sys.stdout.write(CURSOR_UP_ONE) 
+                sys.stdout.write(ERASE_LINE) 
+                return
             if self.state != "InsertWord": return
-
+            if debug: print("My Current state: ", self.state)
             msgStateChange = {
                 "cmd": "GAME",
                 "uuid": str(self.uuid),
@@ -636,8 +646,6 @@ class Game():
             if self.state != "InsertWord": return
             
             self.whisperedWords.append((self.my_ip, self.word_understood))
-
-            
 
             msgStateChange = {
                 "cmd": "GAME",
@@ -688,9 +696,11 @@ class Game():
             if self.message["result"][-1][1] == self.message["result"][0][1]:
                 print("🏆 Congratulations! The team has won.")
                 print("-"*30)
+                print("Wait till new round starts")
             else:
                 print("❌ Oh no! The team has lost. But you have the chance to try again now.")
                 print("-"*30)
+                print("Wait till new round starts")
         except KeyError:
             print("The Game started a new round.")
             print("-"*30)
@@ -754,7 +764,7 @@ class Game():
 
     def findWordInWordList(self, word):
         try:
-            with open('../../data/Rhymes.csv', mode ='r')as file:
+            with open('../data/Rhymes.csv', mode ='r')as file:
                 csvFile = csv.reader(file)
                 lines_with_word = [] # Some words appear in more than one word list. Need to capture all of them
                 for lines in csvFile:
@@ -766,7 +776,7 @@ class Game():
                 except IndexError:
                     return None
         except:
-            with open('./data/Rhymes.csv', mode ='r')as file:
+            with open('../data/Rhymes.csv', mode ='r')as file:
                 csvFile = csv.reader(file)
                 lines_with_word = [] # Some words appear in more than one word list. Need to capture all of them
                 for lines in csvFile:
@@ -781,14 +791,7 @@ class Game():
 if __name__ == '__main__':
     try:
 
-        print("-"*30)
-        players = 0
-        while players < 3:
-            players = input("👥 How many players should join the game? (Min. 3) ")
-            try:
-                players = int(players)
-            except ValueError:
-                players = 0
+       
 
         game = Game(UUID, IP_ADDR)
         peers.append((IP_ADDR, str(UUID)))
@@ -805,6 +808,15 @@ if __name__ == '__main__':
         heartbeat.start()
 
         time.sleep(0.5)
+
+        print("-"*30)
+        players = 0
+        while players < 3:
+            players = input("👥 How many players should join the game? (Min. 3) ")
+            try:
+                players = int(players)
+            except ValueError:
+                players = 0
 
         BSender = BroadcastSender()
 
