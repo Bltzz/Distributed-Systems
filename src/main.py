@@ -554,7 +554,11 @@ class Game():
             elif self.state == "WaitForWord": self.waitForWord()
             elif self.state == "WaitForResult": self.waitForResult()
             elif self.state == "ProcessResult": self.processResult()
-            elif self.state == "ResetWaitForStart": self.state = "WaitForStart"
+            elif self.state == "ResetWaitForStart": 
+                if leader:
+                    print("The game was interruped because a player lost connection")
+                else: print("A Peer was lost, we restart the game")
+                self.state = "WaitForStart"
             else: pass
             time.sleep(.1)
 
@@ -575,12 +579,13 @@ class Game():
         global leader
         global peers
         
+        printIdentifiedState = False
         # If a peer did crash meanwhile, wee neeed to wait until we reach the wanted number of players
         while (len(peers) < players):
             time.sleep(0.5)
             print(f'🔴 Identified {len(peers)}/{players} players: {", ".join([peer[0] for peer in peers])}', end="\r")
+            printIdentifiedState = True
             pass
-        
         print(f'✅ Identified {len(peers)}/{len(peers)} players: {", ".join([peer[0] for peer in peers])}')
         # The neighbor who will receive your input
         self.receivingIP = findRightNeighbor(self.my_ip)[0]
@@ -605,7 +610,7 @@ class Game():
             while not start and self.state == "WaitForStart":
                 start = input("If you want to start the game write 'startGame' (without spacing): ")
 
-            if (start.lower() == "startgame"):
+            if (start.lower() == "startgame") and self.state == "WaitForStart":
 
                 msgStateChange = {
                     "cmd": "GAME",
@@ -616,9 +621,12 @@ class Game():
                 BSender.broadcast(BSender.bcip, BSender.bcport, msgStateChange)
 
                 time.sleep(1)
-
+                # sometimes the state changes during the time sleep, this is why I check again
+                #if self.state == "WaitForStart": self.state = "InsertWord"
+                #else: self.state = "WaitForWord"
                 self.state = "InsertWord"
-            
+            elif (start.lower() == "startgame") and self.state == "ResetWaitForStart": print("One of the players disconected. We will wait until he comes back.")
+            elif (start.lower() == "startgame") and self.state == "WaitForWord": print("We've had a litte problem during the leader election. \nTo avoid any arguments, we will validate the last election.")
             else:
                 pass
         
@@ -647,6 +655,7 @@ class Game():
                 ERASE_LINE = '\x1b[2K' 
                 sys.stdout.write(CURSOR_UP_ONE) 
                 sys.stdout.write(ERASE_LINE) 
+                print("We've had a litte problem during the leader election. \nTo avoid any arguments, we will validate the last election.")
                 return
             
             # State could have changed due to a crashed peer
@@ -664,7 +673,12 @@ class Game():
 
         # Normal peers se a potentialy moified version of the original word and need to forward it
         elif not leader:
-            self.whisperedWords = self.message["whisperedWords"]
+            try:
+                self.whisperedWords = self.message["whisperedWords"]
+            except KeyError:
+                print("We've had a litte problem during the leader election. \nTo avoid any arguments, we will validate the last election.")
+                self.state = "WaitForWord"
+                return
             if debug: print(self.word_understood)
             self.word_understood = None
             while not self.word_understood:
@@ -691,8 +705,8 @@ class Game():
     # Peers are waiting in the que until they are allowed to insert a word
     def waitForWord(self):
         print("-"*30)
-        print("Waiting for your neighbor to whisper a word ...")
         while self.state == "WaitForWord":
+            print("Waiting for your neighbor to whisper a word ...", end="\r")
 
             # State could have changed due to a crashed peer
             if self.state == "InsertWord" and self.message['resent'] == True: # Your left neighbor crashed and was currently inserting a word. You need to do this now
@@ -701,9 +715,11 @@ class Game():
             # Leader role could have changed as the leader could have crashed
             if leader: #Could be that a waiting peer becomes leader after old leader crashes. Then it needs to restart the game. (Cant distinguish whether the old leader submitted word already or not)
                 self.state = "WaitForStart"
+                print("", end="\r")
                 return
             time.sleep(1)
-            
+        print("AFTER WHILE LOOP")
+
     # State to wait until the result is announced
     def waitForResult(self):
         print("-"*30)
@@ -720,8 +736,8 @@ class Game():
 
             # Leader role could have changed as the leader could have crashed
             if leader: # The leader crashed and this peer is the new leader. It needs to switch to the result processing state
-                print("The leader crashed. Now you have to take its role.")
-                self.state = "ProcessResult"
+                print("The leader crashed. \nYou take over his role until the minimum number of peers has been reached and the game can start again.")
+                self.state = "ResetWaitForStart"
                 return
             
         try: # In  case the result broacast didn't arrive, we need skip to the result announcment to avoid errors
@@ -742,7 +758,7 @@ class Game():
             print("The Game started a new round.")
             print("-"*30)
             if len(peers) < players:
-                self.state = "WaitForStart"
+                self.state = "ResetWaitForStart"
             return
 
         # Switch to the state to start again
@@ -758,12 +774,15 @@ class Game():
         # State could have changed due to a crashed peer
         if self.state == "WaitForStart": return
         if debug: print(self.message)
-
-        msgStateChange = {
-            "cmd": "GAME",
-            "uuid": str(self.uuid),
-            "msg": {"state": "WaitForStart", "result": self.message["whisperedWords"]}
-        }
+        try:
+            msgStateChange = {
+                "cmd": "GAME",
+                "uuid": str(self.uuid),
+                "msg": {"state": "WaitForStart", "result": self.message["whisperedWords"]}
+            }
+        except KeyError:
+            self.state = "ResetWaitForStart"
+            return
 
         self.message = msgStateChange["msg"]
 
@@ -790,7 +809,7 @@ class Game():
         # find word in list
         line = self.findWordInWordList(word_understood)
         if line == None:
-            return None
+            return word_understood
         index = line.index(word_understood)
         # go up/down/stay
         if prop < self.PROB_FOR_ONE_WORD_DOWN: # go one word up in word list
@@ -799,8 +818,6 @@ class Game():
             return line[index]
         else: # go one word up in word list
             return line[(index + 1) % len(line)] # use modulo to implement the list as ring
-        # pass word to neighbour
-        pass
 
     def findWordInWordList(self, word):
         try:
@@ -814,7 +831,7 @@ class Game():
                 try:
                     return random.choice(lines_with_word) # Select a random word list that contains the word
                 except IndexError:
-                    return None
+                    return lines_with_word.append(word)
         except:
             with open('../data/Rhymes.csv', mode ='r')as file:
                 csvFile = csv.reader(file)
@@ -826,7 +843,7 @@ class Game():
                 try:
                     return random.choice(lines_with_word) # Select a random word list that contains the word
                 except IndexError:
-                    return None
+                    return lines_with_word.append(word)
 
 # Main thread to initialize the message listeners, start the dicsovery and the game afterwards
 if __name__ == '__main__':
