@@ -18,5 +18,7 @@ To start playing the game, you need to have installed **python 3** on all of you
 
 Start the game by executing the **main.py** file on all of the machines. To ensure a proper functionality, you should wait around 10 seconds before starting the next peer.
 
-## 4. Demo
-https://github.com/Bltzz/Distributed-Systems/blob/master/demo/Distributed%20Systems%20Demo.mp4
+## 4. Demo Video 
+Click on the thumbnail to watch the full demo video on Youtube.
+
+[![Watch the video](https://user-images.githubusercontent.com/56473042/178079890-4b9c563f-769d-44f8-a3c4-f309912c2ff1.jpg)]([https://www.youtube.com/watch?v=-JqqKC71vbI](https://youtu.be/e-GEhAN7Vzk))
