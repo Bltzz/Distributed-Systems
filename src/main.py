@@ -61,6 +61,9 @@ class BroadcastListener(Thread):
         self.listen_socket.bind(('', self.bcport))
         self.running = True
 
+    def terminate(self):
+        self.running = False
+
     def run(self):
         while self.running:
             data, addr = self.listen_socket.recvfrom(1024)
@@ -182,7 +185,9 @@ class MessageInterpreter():
 
             # Send an acknowledgement if a new unkown peer wants to join
             else:
-                peers.append((self.content, self.id))
+                if self.content not in [peer[0] for peer in peers]:
+                    peers.append((self.content, self.id))
+                else: peers[[peer[0] for peer in peers].index(self.content)] = (self.content, self.id)
                 res = {
                     "cmd": "INIT_RESPONSE",
                     "uuid": str(self.my_id),
@@ -248,7 +253,10 @@ class MessageInterpreter():
     
     # Add peers to the list of peers
     def addPeerToList(self, ip_addr, id):
-        peers.append((ip_addr, id))
+        if self.content not in [peer[0] for peer in peers]:
+            peers.append((self.content, self.id))
+        else: peers[[peer[0] for peer in peers].index(self.content)] = (self.content, self.id)
+        #peers.append((ip_addr, id))
         if debug: print("Peers: ", peers)
 
 # A Listener for TCP messages
@@ -259,6 +267,10 @@ class TCPUnicastListener(Thread):
         self.listeningPort = listeningPort
         self.host = socket.gethostname()
         self.ip_addr = IP_ADDR
+        self.running = True
+
+    def terminate(self):
+        self.running = False
 
     def run(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -266,7 +278,7 @@ class TCPUnicastListener(Thread):
         s.bind(('', self.listeningPort))
         if debug: print('TCP Unicast at server %s listening on port %s' % (self.ip_addr, self.listeningPort))
 
-        while True:
+        while self.running:
             s.listen(1)
             conn, addr = s.accept()
             if debug: print("New connection added: ", addr)
@@ -314,10 +326,12 @@ class HeartbeatListener(Thread):
         self.host = socket.gethostname()
         self.ip_addr = IP_ADDR
         self.UUID = UUID
-
         if debug: print("Heartbeat at ", self.ip_addr ," listening on port ", self.heartbeat_port)
         self.running = True
         
+    def terminate(self):
+        self.running = False
+
     def run(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         #s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -342,6 +356,7 @@ class HeartbeatListener(Thread):
             MessageInterpreter(data)
 
         conn.close()
+        s.shutdown()
 
 # Sending heartbeat messages and waiting for a response -> counting the missing responses and informing the leader about missed peers
 class HeartbeatSender(Thread):
@@ -360,6 +375,9 @@ class HeartbeatSender(Thread):
             "uuid": str(self.UUID),
             "msg": self.ip_address
         }
+
+    def terminate(self):
+        self.running = False
 
     # Send heartbeats in a loop of 1 second
     def run(self):
@@ -537,6 +555,9 @@ class Game():
         self.state = "WaitForStart"
         self.message = None
 
+    def terminate(self):
+        self.running = False
+
     # The game works with states that each peer holds
     def startGame(self):
         print("-"*30)
@@ -591,9 +612,9 @@ class Game():
         self.receivingIP = findRightNeighbor(self.my_ip)[0]
 
         # The leader cans tart the gameand send the initial word into the ring
+        time.sleep(2)
         if leader:
-
-            time.sleep(3)
+            time.sleep(1)
 
             # Be safe that everyone is in the "WaitForStart" State. Important espeacially when leader has crashed and a restart is necessary.
             msgStateChange = {
@@ -606,7 +627,7 @@ class Game():
 
             time.sleep(1)
 
-            start = None
+            start = ""
             while not start and self.state == "WaitForStart":
                 start = input("If you want to start the game write 'startGame' (without spacing): ")
 
@@ -705,12 +726,8 @@ class Game():
     # Peers are waiting in the que until they are allowed to insert a word
     def waitForWord(self):
         print("-"*30)
+        print("Waiting for your neighbor to whisper a word ...")
         while self.state == "WaitForWord":
-            print("Waiting for your neighbor to whisper a word ...", end="\r")
-
-            # State could have changed due to a crashed peer
-            if self.state == "InsertWord" and self.message['resent'] == True: # Your left neighbor crashed and was currently inserting a word. You need to do this now
-                return # This if is actually not necessary. Serves only the clearness
 
             # Leader role could have changed as the leader could have crashed
             if leader: #Could be that a waiting peer becomes leader after old leader crashes. Then it needs to restart the game. (Cant distinguish whether the old leader submitted word already or not)
@@ -718,7 +735,10 @@ class Game():
                 print("", end="\r")
                 return
             time.sleep(1)
-        print("AFTER WHILE LOOP")
+        # State could have changed due to a crashed peer
+        if self.state == "InsertWord" and self.message['resent'] == True: # Your left neighbor crashed and was currently inserting a word. You need to do this now
+            return # This if is actually not necessary. Serves only the clearness
+        #print("AFTER WHILE LOOP")
 
     # State to wait until the result is announced
     def waitForResult(self):
@@ -848,6 +868,10 @@ class Game():
 # Main thread to initialize the message listeners, start the dicsovery and the game afterwards
 if __name__ == '__main__':
     try:
+        heartbeatSender = None
+        listener = None
+        BListener = None
+        heartbeat = None
 
         game = Game(UUID, IP_ADDR)
         peers.append((IP_ADDR, str(UUID)))
@@ -885,3 +909,9 @@ if __name__ == '__main__':
 
     except KeyboardInterrupt:
         sys.exit(0)
+    finally:
+        if listener: listener.terminate()
+        if BListener: BListener.terminate()
+        if heartbeatSender: heartbeatSender.terminate()
+        if heartbeat: heartbeat.terminate()
+        game.running = False
